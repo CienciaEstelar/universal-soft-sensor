@@ -1,0 +1,80 @@
+{
+  "dataset_name": "gold_recovery",
+  "description": "Dataset de recuperación de oro - Proceso de flotación",
+  "files": {
+    "filename": "gold_recovery_full.csv",
+    "timestamp_column": "date",
+    "separator": ","
+  },
+  "modeling": {
+    "target_column": "rougher.output.recovery",
+    "problem_type": "regression",
+    "notes": "Predicción de recuperación de oro en el proceso rougher (soft-sensor en tiempo real)"
+  },
+  "feature_engineering": {
+    "include_patterns": [
+      "rougher.input",
+      "rougher.state",
+      "rougher.output.recovery",
+      "primary_cleaner.input",
+      "primary_cleaner.state",
+      "secondary_cleaner.input",
+      "secondary_cleaner.state",
+      "flotation"
+    ],
+    "exclude_patterns": [
+      ".output.tail",
+      ".output.concentrate",
+      "primary_cleaner.output",
+      "secondary_cleaner.output",
+      "final.output"
+    ],
+    "forced_drop": [
+      "date",
+      "rougher.output.tail_ag",
+      "rougher.output.tail_au",
+      "rougher.output.tail_pb",
+      "rougher.output.tail_sol",
+      "rougher.output.concentrate_ag",
+      "rougher.output.concentrate_au",
+      "rougher.output.concentrate_pb",
+      "rougher.output.concentrate_sol",
+      "primary_cleaner.output.concentrate_ag",
+      "primary_cleaner.output.concentrate_au",
+      "primary_cleaner.output.concentrate_pb",
+      "primary_cleaner.output.concentrate_sol",
+      "primary_cleaner.output.tail_ag",
+      "primary_cleaner.output.tail_au",
+      "primary_cleaner.output.tail_pb",
+      "primary_cleaner.output.tail_sol",
+      "secondary_cleaner.output.concentrate_ag",
+      "secondary_cleaner.output.concentrate_au",
+      "secondary_cleaner.output.concentrate_pb",
+      "secondary_cleaner.output.concentrate_sol",
+      "secondary_cleaner.output.tail_ag",
+      "secondary_cleaner.output.tail_au",
+      "secondary_cleaner.output.tail_pb",
+      "secondary_cleaner.output.tail_sol",
+      "final.output.recovery",
+      "final.output.concentrate_ag",
+      "final.output.concentrate_au",
+      "final.output.concentrate_pb",
+      "final.output.concentrate_sol",
+      "final.output.tail_ag",
+      "final.output.tail_au",
+      "final.output.tail_pb",
+      "final.output.tail_sol"
+    ],
+    "notes": "CORRECCIÓN APLICADA: Se incluye explícitamente rougher.output.recovery como feature válido (es el target). Los exclude_patterns ahora son más específicos (.output.tail, .output.concentrate) para no eliminar el target accidentalmente. Se bloquean todos los outputs de etapas posteriores (primary_cleaner, secondary_cleaner, final) para evitar data leakage temporal."
+  },
+  "preprocessing": {
+    "handle_nulls": "ffill",
+    "handle_outliers": "robust_scaler",
+    "feature_scaling": "robust"
+  },
+  "training": {
+    "test_size": 0.2,
+    "validation_strategy": "time_series_split",
+    "random_state": 42
+  }
+}

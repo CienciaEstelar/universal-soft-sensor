@@ -1,0 +1,23 @@
+# --- Entornos Virtuales ---
+.venv/
+venv/
+ENV/
+
+# --- Python ---
+__pycache__/
+*.pyc
+
+# --- Datos (Pesados) ---
+# Ignoramos la carpeta data para no subir CSVs de 500MB
+data/
+
+# --- Configuración Secreta ---
+.env
+.DS_Store
+
+# --- Logs ---
+logs/
+
+# --- IDEs ---
+.vscode/
+.idea/

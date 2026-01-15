@@ -1,0 +1,4 @@
+[console_scripts]
+mining-gp = core.models.mining_gp_pro:main
+mining-pipeline = core.pipeline:main
+mining-scan = tools.scan_schema:main

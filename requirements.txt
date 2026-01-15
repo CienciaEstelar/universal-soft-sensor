@@ -1,0 +1,40 @@
+# =============================================================================
+# Proyecto Minero 4.0 - Dependencias
+# =============================================================================
+# Instalar con: pip install -r requirements.txt
+
+# Core Data Science
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Machine Learning
+scikit-learn>=1.3.0
+optuna>=3.0.0
+joblib>=1.3.0
+
+# Visualización
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# UI / Progress
+rich>=13.0.0
+
+# Configuración
+python-dotenv>=1.0.0
+
+# =============================================================================
+# Dependencias opcionales para desarrollo
+# =============================================================================
+# Descomentar si necesitas herramientas de desarrollo
+
+# Testing
+# pytest>=7.0.0
+# pytest-cov>=4.0.0
+
+# Linting & Formatting
+# black>=23.0.0
+# ruff>=0.1.0
+# mypy>=1.0.0
+
+# Pre-commit hooks
+# pre-commit>=3.0.0
