@@ -1,211 +1,202 @@
-# 🏭 Proyecto Minero 4.0
+# ⚒️ Proyecto Minero 4.0
 
-Pipeline ETL industrial y Soft-Sensor basado en Gaussian Process para predicción de calidad en procesos de flotación de mineral.
+## Inteligencia Artificial para Procesos de Flotación
 
-## 📋 Descripción
+<div align="center">
 
-Este proyecto implementa un sistema completo para:
+![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge\&logo=python\&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Industrial%20Prototype-success?style=for-the-badge)
+![Industry](https://img.shields.io/badge/Industria-Minería%204.0-orange?style=for-the-badge)
+![AI Model](https://img.shields.io/badge/AI-Gaussian%20Process%20%2B%20Gradient%20Boosting-purple?style=for-the-badge)
 
-1. **Ingesta de datos** de sensores industriales (CSV con auto-detección de formato)
-2. **Validación física** de rangos según el proceso de flotación
-3. **Limpieza y preprocesamiento** robusto de datos de sensores
-4. **Modelado predictivo** usando Gaussian Process para soft-sensing
+**Pipeline ETL industrial y Soft-Sensor predictivo para control de calidad en tiempo real**
 
-El objetivo principal es predecir el **% de Sílice en concentrado** a partir de variables de proceso, funcionando como un "sensor virtual" (soft-sensor) que puede complementar o reemplazar mediciones de laboratorio costosas y con delay.
+</div>
 
-## 🏗️ Estructura del Proyecto
+---
 
+## 📋 Resumen Ejecutivo
+
+Este proyecto implementa una solución de **Minería 4.0** orientada a la optimización de plantas de procesamiento de minerales. El sistema reemplaza análisis de laboratorio lentos y costosos mediante un **Soft-Sensor basado en Inteligencia Artificial**, capaz de predecir variables críticas de calidad (por ejemplo, **% de Sílice** o **Recuperación Metalúrgica**) en tiempo casi real a partir de datos de sensores de planta.
+
+La arquitectura está diseñada con un enfoque **industrial y productivo**, combinando:
+
+* **Procesos Gaussianos (GP)** para modelar precisión e incertidumbre.
+* **Gradient Boosting** como respaldo robusto frente a ruido, no estacionariedad y condiciones operativas cambiantes.
+
+El sistema está preparado para integrarse con historiadores industriales (por ejemplo, SCADA o PI System) y extenderse hacia estrategias de **Advanced Process Control (APC)**.
+
+---
+
+## 🎯 Objetivo del Sistema
+
+Predecir variables críticas del proceso de flotación (**target**) a partir de variables operativas (**features**) con métricas de nivel industrial:
+
+* **R² ≥ 0.95**
+* **MAPE < 2%**
+
+habilitando soporte a la toma de decisiones operativas, control avanzado de procesos y reducción de dependencia de laboratorio.
+
+---
+
+## 🏗️ Arquitectura del Sistema
+
+El sistema se estructura en dos pipelines principales:
+
+* **Entrenamiento (Batch / Offline)**
+* **Inferencia (Simulación de Tiempo Real)**
+
+```mermaid
+graph TD
+    classDef data fill:#333,stroke:#f4a261,stroke-width:2px,color:white;
+    classDef process fill:#2a9d8f,stroke:white,stroke-width:2px,color:white;
+    classDef ai fill:#e76f51,stroke:white,stroke-width:2px,color:white;
+    classDef storage fill:#264653,stroke:#e9c46a,stroke-width:2px,color:white,stroke-dasharray: 5 5;
+
+    subgraph "Piso de Planta"
+        RawData[(Datos Crudos de Sensores)]:::data
+    end
+
+    subgraph "Pipeline de Entrenamiento"
+        RawData --> Adapter[Universal Adapter]:::process
+        Adapter --> Validator[Validación Física]:::process
+        Validator --> Preproc[Preprocesamiento Robusto]:::process
+        Preproc --> FeatureEng[Feature Engineering Temporal]:::process
+
+        FeatureEng --> Optuna[Optimización de Hiperparámetros]:::ai
+        Optuna --> Decision{GP Estable?}:::ai
+        Decision -- Sí --> TrainGP[Gaussian Process]:::ai
+        Decision -- No --> TrainGBR[Gradient Boosting]:::ai
+    end
+
+    subgraph "Model Registry"
+        TrainGP --> Artifacts[(Modelos + Scalers + Metadata)]:::storage
+        TrainGBR --> Artifacts
+    end
+
+    subgraph "Inferencia"
+        NewData[Datos Nuevos]:::data --> Inference[Inference Engine]:::process
+        Artifacts -.-> Inference
+        Inference --> Prediction[Predicción + Incertidumbre]:::ai
+    end
 ```
-proyecto-minero-4.0/
-├── config/
-│   ├── __init__.py
-│   └── settings.py          # Configuración centralizada
-├── core/
-│   ├── adapters/
-│   │   └── mining_csv_adapter.py   # Ingesta universal de CSV
-│   ├── validation/
-│   │   ├── schema.py         # Rangos físicos válidos
-│   │   └── validator.py      # Filtrado por validez física
-│   ├── models/
-│   │   └── mining_gp_pro.py  # Soft-Sensor GP
-│   ├── preprocessor.py       # Limpieza de datos
-│   └── pipeline.py           # Orquestador ETL
-├── tools/
-│   └── scan_schema.py        # Utilidad de diagnóstico
-├── data/
-│   ├── raw/                  # Datos crudos
-│   └── processed/            # Datos limpios
-├── models/                   # Modelos entrenados (.pkl)
-├── results/                  # Gráficos y reportes
-├── logs/                     # Logs de ejecución
-├── .env.example              # Plantilla de configuración
-├── requirements.txt
-├── pyproject.toml
-└── README.md
-```
+
+El **modelo campeón** se selecciona automáticamente según métricas de validación y se registra junto con sus transformaciones, parámetros y metadata operativa.
+
+---
+
+## ✨ Características Clave de Ingeniería
+
+* **Ingesta Universal de Datos**
+  Lectura automática de archivos CSV industriales, detección de separadores y timestamps, con filtrado por expresiones regulares para evitar *data leakage*.
+
+* **Modelado Híbrido Inteligente**
+
+  * Prioriza **Gaussian Processes** con kernels físicamente restringidos.
+  * Activa **fallback automático a Gradient Boosting** si el GP no alcanza desempeño mínimo (R² < 0.6).
+
+* **Conciencia Temporal Estricta**
+  Respeto explícito de la flecha del tiempo (sin `shuffle`), generación de *lags* y ventanas móviles para capturar la dinámica del proceso.
+
+* **Motor de Inferencia Orientado a Producción**
+  Carga automática del último modelo válido, validación de esquema de entrada y generación de predicción junto a su incertidumbre.
+
+---
+
+## 🏆 Resultados de Desempeño
+
+Evaluado con datasets reales de procesos de flotación:
+
+| Métrica  | Resultado (Gradient Boosting) | Interpretación Operacional                    |
+| -------- | ----------------------------- | --------------------------------------------- |
+| **R²**   | **0.9707**                    | Explica el 97% de la variabilidad del proceso |
+| **MAPE** | **1.43%**                     | Error comparable a análisis de laboratorio    |
+| **RMSE** | **1.74**                      | Baja dispersión del error                     |
+
+Los gráficos de ajuste, residuos y validación se generan automáticamente en la carpeta `results/` tras cada entrenamiento.
+
+---
 
 ## 🚀 Instalación
 
-### Opción 1: Instalación con pip (recomendado)
+### 1. Clonar el repositorio
 
 ```bash
-# Clonar repositorio
-git clone https://github.com/tu-usuario/proyecto-minero.git
-cd proyecto-minero
-
-# Crear entorno virtual
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
-
-# Instalar en modo editable
-pip install -e .
+git clone https://github.com/CienciaEstelar/proyecto_minero_4.0.git
+cd proyecto_minero_4.0
 ```
 
-### Opción 2: Instalación tradicional
+### 2. Crear entorno virtual
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Instalar dependencias
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Configuración
+---
 
-```bash
-# Copiar plantilla de configuración
-cp .env.example .env
+## ⚙️ Configuración de Datos
 
-# Editar con tu ruta al dataset
-nano .env
-```
+1. Coloca tu archivo CSV de sensores en la carpeta `data/` (ignorados por git).
+2. Edita `config/dataset_config.json` para definir:
 
-## 📊 Uso
-
-### 1. Verificar estructura del dataset
-
-```bash
-python -m tools.scan_schema
-```
-
-### 2. Ejecutar pipeline ETL
-
-```bash
-# Usando el comando instalado
-mining-pipeline
-
-# O directamente
-python -m core.pipeline
-
-# Con opciones
-python -m core.pipeline --estrategia interpolate --outliers
-```
-
-### 3. Entrenar Soft-Sensor
-
-```bash
-# Usando el comando instalado
-mining-gp
-
-# O directamente
-python -m core.models.mining_gp_pro
-
-# Con opciones
-python -m core.models.mining_gp_pro --trials 20 --test-size 0.3
-```
-
-### Uso programático
-
-```python
-from core import MiningPipeline, MiningGP
-
-# ETL
-pipeline = MiningPipeline(estrategia_limpieza="interpolate")
-stats = pipeline.run()
-
-# Modelo
-model = MiningGP(target_col="_silica_concentrate")
-metrics = model.train_from_file()
-print(f"R² = {metrics.r2:.4f}")
-
-# Predicción
-y_pred, y_std = model.predict(X_new)
-```
-
-## 🔧 Configuración
-
-Variables de entorno (`.env`):
-
-| Variable | Descripción | Default |
-|----------|-------------|---------|
-| `MINING_DATA_RAW_PATH` | Ruta al dataset crudo | `data/MiningProcess...csv` |
-| `CHUNK_SIZE` | Filas por chunk | `25000` |
-| `GP_TARGET` | Columna objetivo | `_silica_concentrate` |
-| `GP_MAX_SAMPLES` | Máx. muestras para GP | `5000` |
-| `GP_TRIALS` | Trials de Optuna | `15` |
-| `PREPROCESS_STRATEGY` | Estrategia imputación | `ffill` |
-
-## 📈 Resultados
-
-El Soft-Sensor típicamente logra:
-- **R² > 0.85** en predicción de % Sílice
-- **Incertidumbre calibrada** (intervalos de confianza 95%)
-- **Latencia < 1s** para predicciones en tiempo real
-
-### Gráficos generados
-
-- `control_chart_*.png`: Series temporales Real vs Predicho
-- `scatter_fit_*.png`: Gráfico de ajuste con R²
-- `error_analysis_*.png`: Distribución de residuos
-
-## 🧪 Testing
-
-```bash
-# Instalar dependencias de desarrollo
-pip install -e ".[dev]"
-
-# Ejecutar tests
-pytest
-
-# Con cobertura
-pytest --cov=core --cov-report=html
-```
-
-## 📚 Documentación Técnica
-
-### Arquitectura del Pipeline
-
-```
-CSV Crudo → Adapter (auto-detección) → Validator (rangos físicos) 
-         → Preprocessor (imputación) → CSV Limpio
-```
-
-### Kernel del GP
-
-El modelo usa un kernel industrial optimizado:
-
-```
-K(x, x') = σ² · Matérn(x, x'; ν, l) + σ_n² · δ(x, x')
-```
-
-- **Matérn (ν=1.5)**: Captura la dinámica suave de procesos físicos
-- **WhiteKernel**: Modela el ruido de sensores
-- **RobustScaler**: Maneja outliers típicos de sensores industriales
-
-## 🤝 Contribuir
-
-1. Fork el repositorio
-2. Crear branch: `git checkout -b feature/nueva-funcionalidad`
-3. Commit: `git commit -m 'Agregar nueva funcionalidad'`
-4. Push: `git push origin feature/nueva-funcionalidad`
-5. Crear Pull Request
-
-## 📄 Licencia
-
-MIT License - ver [LICENSE](LICENSE) para detalles.
-
-## 👤 Autor
-
-**Juan Galaz**
+   * Archivo de entrada
+   * Columna objetivo (target)
+3. (Opcional) Copia `.env.example` a `.env` para parámetros avanzados.
 
 ---
 
-*Desarrollado para optimización de procesos de flotación minera* 🏔️
+## 🎮 Uso del Sistema
+
+### Entrenamiento
+
+```bash
+python train_universal.py
+```
+
+El sistema ejecuta el pipeline ETL completo, selecciona el modelo campeón y lo registra en `models/`.
+
+### Inferencia
+
+```bash
+python predict_universal.py
+```
+
+Simula datos en tiempo real y presenta una comparación entre valor real y predicción del modelo.
+
+---
+
+## 📂 Estructura del Proyecto
+
+```text
+proyecto_minero_4.0/
+├── config/                  # Configuración del sistema
+├── core/                    # Núcleo lógico del sistema
+│   ├── adapters/            # Ingesta de datos
+│   ├── models/              # Modelos de IA
+│   ├── validation/          # Reglas físicas y de negocio
+│   └── inference_engine.py  # Motor de inferencia
+├── data/                    # Datos de entrada (gitignore)
+├── models/                  # Modelos entrenados
+├── results/                 # Reportes y gráficos
+├── logs/                    # Trazabilidad
+├── train_universal.py       # Orquestador de entrenamiento
+├── predict_universal.py     # Orquestador de inferencia
+├── requirements.txt
+└── README.md
+```
+
+---
+
+<div align="center">
+
+**Desarrollado para Minería 4.0**
+Juan Galaz — Arquitectura Minera
+
+</div>
