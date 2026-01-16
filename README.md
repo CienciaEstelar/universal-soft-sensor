@@ -24,7 +24,7 @@ Predecir variables críticas del proceso de flotación (Target) utilizando varia
 
 El sistema se divide en dos pipelines macro: **Entrenamiento (Batch)** y **Inferencia (Real-time Simulation)**.
 
-```mermaid
+
 graph TD
     %% Estilos Mineros
     classDef data fill:#333,stroke:#f4a261,stroke-width:2px,color:white;
