@@ -3,53 +3,45 @@
 Script: train_universal.py
 Proyecto: Arquitectura Minera 4.0
 Autor: Juan Galaz
-Versión: 2.2.0
+Versión: 2.3.0
 ═══════════════════════════════════════════════════════════════════════════════
 
 DESCRIPCIÓN:
     Orquestador Universal del Pipeline de Entrenamiento (MLOps).
     
     Este script es el "Director de Orquesta" que conecta:
-    1. INGESTA: UniversalAdapter (Carga inteligente basada en JSON)
-    2. MODELADO: MiningGP v4.1 (Gaussian Process con corrección de ruido)
+    1. INGESTA: MiningDataAdapter (Carga + Filtrado unificado)
+    2. MODELADO: MiningGP v4.1 (Gaussian Process con fallback a GBR)
     3. PERSISTENCIA: Guardado automático de modelos y métricas.
 
     El flujo completo es:
     
-        CSV → UniversalAdapter → MiningGP → Modelo.pkl + Reporte.png
+        CSV → MiningDataAdapter → MiningGP → Modelo.pkl + Reporte.png
         
 ═══════════════════════════════════════════════════════════════════════════════
 HISTORIAL DE CAMBIOS:
 ═══════════════════════════════════════════════════════════════════════════════
 
-    [v2.2.0 - Enero 2026] CLEAN CODE UPDATE
+    [v2.3.0 - Enero 2026] ADAPTER UNIFICADO
     ----------------------------------------
     
-    ✅ FIX: Subsample centralizado en CONFIG
+    ✅ CAMBIO: Migración a MiningDataAdapter
     
        ANTES:
-           # Línea ~95 (hardcodeado)
-           subsample_step = 10  # ❌ Valor "mágico" suelto en el código
+           from core.adapters.universal_adapter import UniversalAdapter
+           adapter = UniversalAdapter(config_filename)
        
        AHORA:
-           # Importamos desde config/settings.py
-           from config.settings import CONFIG
-           
-           # Y usamos el valor centralizado
-           # (MiningGP ya lo usa por defecto, no necesitamos pasarlo explícitamente)
+           from core.adapters import MiningDataAdapter
+           adapter = MiningDataAdapter(config_filename)
        
-       RAZÓN:
-           Antes, si querías cambiar el subsample tenías que editar:
-           - train_universal.py (valor 10)
-           - inference.py (valor 50)  
-           - mining_gp_pro.py (valor 50)
-           
-           Ahora solo editas config/settings.py y todo el sistema cambia.
+       BENEFICIOS:
+           - Un solo adapter que hace ingesta robusta + filtrado
+           - Estadísticas de ingesta disponibles en adapter.stats
+           - API más limpia y consistente
+           - Los adapters antiguos están deprecados pero siguen funcionando
     
-    ✅ LIMPIEZA: Eliminado código redundante
-       - Ya no pasamos subsample_step explícito a MiningGP
-       - MiningGP usa CONFIG.DEFAULT_SUBSAMPLE_STEP por defecto
-
+    [v2.2.0] Subsample centralizado en CONFIG
     [v2.1.0] Integración con UniversalAdapter
     [v2.0.0] Migración a MiningGP
     [v1.0.0] Versión inicial
@@ -81,10 +73,22 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-# Módulos internos de la Arquitectura Minera
-from core.adapters.universal_adapter import UniversalAdapter
+# ═══════════════════════════════════════════════════════════════════════════
+# [v2.3.0] CAMBIO: Usar MiningDataAdapter unificado
+# ═══════════════════════════════════════════════════════════════════════════
+# ANTES:
+#   from core.adapters.universal_adapter import UniversalAdapter
+#
+# AHORA:
+#   from core.adapters import MiningDataAdapter
+#
+# El nuevo adapter combina las capacidades de:
+# - MiningCSVAdapter (ingesta robusta, auto-detección, sanitización)
+# - UniversalAdapter (filtrado por JSON, protección del target)
+# ═══════════════════════════════════════════════════════════════════════════
+from core.adapters import MiningDataAdapter
 from core.models.mining_gp_pro import MiningGP, ModelMetrics
-from config.settings import CONFIG  # ← [v2.2.0] Importamos la configuración centralizada
+from config.settings import CONFIG
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN DE LOGGING
@@ -94,7 +98,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-logger = logging.getLogger("Universal_Trainer_v2.2")
+logger = logging.getLogger("Universal_Trainer_v2.3")
 console = Console()
 
 
@@ -104,24 +108,22 @@ console = Console()
 
 def prepare_data_with_adapter(config_filename: str = "dataset_config.json") -> tuple:
     """
-    Carga y limpia datos usando UniversalAdapter.
+    Carga y limpia datos usando MiningDataAdapter.
     
-    El UniversalAdapter actúa como un "firewall de datos":
-    - Lee reglas desde un archivo JSON
-    - Filtra columnas según patrones (include/exclude)
-    - Elimina columnas que causan data leakage
-    - Aplica forward-fill para valores nulos
+    El MiningDataAdapter v2.0 es el único punto de entrada de datos al sistema.
+    Combina las capacidades de ingesta robusta (auto-detección de formato,
+    sanitización de columnas) con filtrado inteligente (patrones JSON).
     
     Args:
         config_filename: Nombre del archivo de configuración JSON
                         (debe estar en config/)
     
     Returns:
-        Tuple de (ruta_csv_temporal, configuración_dict)
+        Tuple de (ruta_csv_temporal, configuración_dict, adapter)
         
     Raises:
         FileNotFoundError: Si no encuentra el JSON o el CSV
-        KeyError: Si el JSON está mal formado
+        ValueError: Si el JSON está mal formado
     """
     console.print(Panel.fit(
         "📥 FASE 1: Carga y Filtrado de Datos", 
@@ -129,40 +131,68 @@ def prepare_data_with_adapter(config_filename: str = "dataset_config.json") -> t
     ))
     
     try:
-        # Inicializar adaptador (lee el JSON automáticamente)
-        adapter = UniversalAdapter(config_filename)
-        logger.info(f"📋 Dataset configurado: {adapter.config['dataset_name']}")
+        # ═══════════════════════════════════════════════════════════════════
+        # [v2.3.0] Usar MiningDataAdapter
+        # ═══════════════════════════════════════════════════════════════════
+        adapter = MiningDataAdapter(config_filename)
+        
+        # Mostrar info del adapter
+        console.print(f"[dim]{adapter}[/dim]")
+        logger.info(f"📋 Dataset configurado: {adapter.config.get('dataset_name', 'unknown')}")
         
         # Cargar y filtrar datos según reglas del JSON
+        # El método load_data() hace todo: sanitización + filtrado + imputación
         df = adapter.load_data()
         
-        # Mostrar estadísticas de carga
+        # ═══════════════════════════════════════════════════════════════════
+        # [v2.3.0] Mostrar estadísticas detalladas de ingesta
+        # ═══════════════════════════════════════════════════════════════════
         console.print(f"\n[bold green]✅ Datos cargados y filtrados exitosamente:[/bold green]")
         
         stats_table = Table(show_header=False, box=None, padding=(0, 2))
         stats_table.add_row("Registros:", f"{len(df):,}")
         stats_table.add_row("Features:", f"{len(df.columns) - 1}")  # -1 por el target
-        stats_table.add_row("Target:", adapter.config["modeling"]["target_column"])
+        stats_table.add_row("Target:", adapter.get_target_column())
         stats_table.add_row("Rango temporal:", f"{df.index.min()} → {df.index.max()}")
+        
+        # Mostrar estadísticas de filtrado si están disponibles
+        if adapter.stats:
+            stats_table.add_row("", "")  # Separador visual
+            stats_table.add_row(
+                "Columnas eliminadas:", 
+                f"{len(adapter.stats.columnas_eliminadas)} ({adapter.stats.tasa_filtrado_columnas:.1f}%)"
+            )
+            if adapter.stats.fechas_invalidas > 0:
+                stats_table.add_row(
+                    "Fechas inválidas:", 
+                    f"[yellow]{adapter.stats.fechas_invalidas}[/yellow]"
+                )
+            if adapter.stats.nulos_imputados > 0:
+                stats_table.add_row(
+                    "Nulos imputados:", 
+                    f"{adapter.stats.nulos_imputados:,}"
+                )
+        
         console.print(stats_table)
         
         # Guardar CSV temporal para que MiningGP lo lea
         # (MiningGP espera un archivo, no un DataFrame directamente)
         CONFIG.DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        dataset_name = adapter.config['dataset_name']
+        dataset_name = adapter.config.get('dataset_name', 'dataset')
         temp_filepath = CONFIG.DATA_PROCESSED_DIR / f"{dataset_name}_filtered_{timestamp}.csv"
         
         df.to_csv(temp_filepath)
         logger.info(f"💾 CSV temporal guardado: {temp_filepath}")
         
-        return temp_filepath, adapter.config
+        # Retornamos también el adapter por si necesitamos acceder a su config
+        return temp_filepath, adapter.config, adapter
         
     except FileNotFoundError as e:
         logger.critical(f"❌ Archivo no encontrado: {e}")
         raise
-    except KeyError as e:
-        logger.critical(f"❌ JSON mal formado - falta clave: {e}")
+    except ValueError as e:
+        logger.critical(f"❌ Error de configuración: {e}")
         raise
     except Exception as e:
         logger.critical(f"💥 Error fatal en ingesta: {e}")
@@ -188,33 +218,6 @@ def train_model_with_gp(
     - Entrenamiento final
     - Evaluación y generación de reportes
     
-    ═══════════════════════════════════════════════════════════════════════
-    [v2.2.0] NOTA IMPORTANTE SOBRE SUBSAMPLE:
-    ═══════════════════════════════════════════════════════════════════════
-    
-    ANTES (v2.1.0 y anteriores):
-        # El valor estaba hardcodeado aquí
-        model = MiningGP(
-            target_col=target_col,
-            subsample_step=10,  # ❌ Hardcode - fácil de olvidar actualizar
-            ...
-        )
-    
-    AHORA (v2.2.0):
-        # MiningGP usa CONFIG.DEFAULT_SUBSAMPLE_STEP por defecto
-        # No necesitamos pasar el valor explícitamente
-        model = MiningGP(
-            target_col=target_col,
-            # subsample_step usa CONFIG automáticamente ✅
-            ...
-        )
-    
-    Si necesitas un subsample diferente para este entrenamiento específico,
-    puedes pasarlo explícitamente:
-        model = MiningGP(target_col=target_col, subsample_step=20)
-    
-    ═══════════════════════════════════════════════════════════════════════
-    
     Args:
         data_filepath: Ruta al CSV filtrado (output de Fase 1)
         adapter_config: Diccionario con configuración del dataset
@@ -233,24 +236,20 @@ def train_model_with_gp(
         target_col = adapter_config["modeling"]["target_column"]
         
         # ═══════════════════════════════════════════════════════════════════
-        # [v2.2.0] CREACIÓN DEL MODELO
+        # CREACIÓN DEL MODELO
         # ═══════════════════════════════════════════════════════════════════
-        # Ya NO pasamos subsample_step explícitamente.
-        # MiningGP lo toma de CONFIG.DEFAULT_SUBSAMPLE_STEP por defecto.
-        #
-        # Esto garantiza que entrenamiento e inferencia usen el mismo valor,
-        # evitando el bug de desalineación de features que teníamos antes.
+        # MiningGP usa CONFIG.DEFAULT_SUBSAMPLE_STEP por defecto.
+        # Esto garantiza consistencia entre entrenamiento e inferencia.
         # ═══════════════════════════════════════════════════════════════════
         model = MiningGP(
             target_col=target_col,
-            # subsample_step: usa CONFIG.DEFAULT_SUBSAMPLE_STEP (actualmente 10)
+            # subsample_step: usa CONFIG.DEFAULT_SUBSAMPLE_STEP automáticamente
             add_lag_features=True,           # Agregar Y(t-1), Y(t-5), etc.
             add_diff_features=True,          # Agregar diferencias y rolling stats
             use_fallback_model=True,         # Usar GradientBoosting si GP falla
             remove_constant_features=True,   # Eliminar features con std ≈ 0
             remove_correlated_features=True  # Eliminar features redundantes
         )
-        # ═══════════════════════════════════════════════════════════════════
         
         # Log de configuración
         logger.info(f"🎯 Target columna: {target_col}")
@@ -286,7 +285,8 @@ def generate_summary_report(
     dataset_name: str,
     model: MiningGP,
     metrics: ModelMetrics,
-    data_filepath: Path
+    data_filepath: Path,
+    adapter: MiningDataAdapter = None
 ) -> None:
     """
     Genera el reporte final de calidad del modelo.
@@ -302,6 +302,7 @@ def generate_summary_report(
         model: Instancia del modelo entrenado
         metrics: Métricas de evaluación
         data_filepath: Ruta al CSV usado para entrenamiento
+        adapter: Instancia del adapter (opcional, para stats adicionales)
     """
     console.print(Panel.fit("📊 RESUMEN EJECUTIVO", style="bold green"))
     
@@ -373,7 +374,7 @@ def main():
     Función principal del pipeline de entrenamiento.
     
     Orquesta las 3 fases:
-    1. Ingesta de datos (UniversalAdapter)
+    1. Ingesta de datos (MiningDataAdapter)
     2. Entrenamiento del modelo (MiningGP)
     3. Generación de reportes
     
@@ -385,8 +386,8 @@ def main():
     try:
         # Banner de inicio
         console.print(Panel.fit(
-            "🚀 Pipeline Universal de Entrenamiento v2.2.0\n"
-            "Clean Code Update - Enero 2026\n"
+            "🚀 Pipeline Universal de Entrenamiento v2.3.0\n"
+            "Adapter Unificado - Enero 2026\n"
             "Arquitectura Minera 4.0",
             style="bold blue"
         ))
@@ -399,21 +400,22 @@ def main():
         console.print()
         
         # === PASO 1: INGESTA DE DATOS ===
-        data_filepath, adapter_config = prepare_data_with_adapter()
+        data_filepath, adapter_config, adapter = prepare_data_with_adapter()
         
         # === PASO 2: ENTRENAMIENTO DEL MODELO ===
         model, metrics = train_model_with_gp(
             data_filepath=data_filepath,
             adapter_config=adapter_config,
-            n_trials=50  # Puedes ajustar esto
+            n_trials=50  # Puedes ajustar esto o leerlo de CONFIG
         )
         
         # === PASO 3: REPORTE FINAL ===
         generate_summary_report(
-            dataset_name=adapter_config['dataset_name'],
+            dataset_name=adapter_config.get('dataset_name', 'unknown'),
             model=model,
             metrics=metrics,
-            data_filepath=data_filepath
+            data_filepath=data_filepath,
+            adapter=adapter
         )
         
         # Determinar exit code
