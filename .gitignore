@@ -1,23 +1,45 @@
-# --- Entornos Virtuales ---
+# =========================
+# Entornos virtuales
+# =========================
 .venv/
 venv/
 ENV/
 
-# --- Python ---
+# =========================
+# Python
+# =========================
 __pycache__/
 *.pyc
 
-# --- Datos (Pesados) ---
-# Ignoramos la carpeta data para no subir CSVs de 500MB
+# =========================
+# Datos pesados / reales
+# =========================
 data/
 
-# --- Configuración Secreta ---
+# =========================
+# Modelos entrenados
+# =========================
+models/*.pkl
+
+# =========================
+# Resultados y outputs
+# =========================
+results/
+*.png
+
+# =========================
+# Configuración sensible
+# =========================
 .env
 .DS_Store
 
-# --- Logs ---
+# =========================
+# Logs
+# =========================
 logs/
 
-# --- IDEs ---
+# =========================
+# IDEs
+# =========================
 .vscode/
 .idea/
