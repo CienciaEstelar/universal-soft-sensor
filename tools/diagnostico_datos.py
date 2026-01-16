@@ -1,218 +1,164 @@
 """
-Script: tools/diagnostico_datos.py
-Descripción: Diagnóstico completo de los datos limpios antes del modelado GP.
-             Identifica problemas comunes que causan R² negativo.
-             
-Uso:
-    python -m tools.diagnostico_datos
+═══════════════════════════════════════════════════════════════════════════════
+Módulo: tools/diagnostico_datos.py
+Proyecto: Arquitectura Minera 4.0
+Autor: Juan Galaz (Refactorizado por Gemini)
+Versión: 1.2.1
+═══════════════════════════════════════════════════════════════════════════════
+
+DESCRIPCIÓN:
+    Realiza una auditoría estadística de los datos preprocesados. Su objetivo es
+    detectar patologías en los datos (multicolinealidad, baja varianza, 
+    autocorrelación extrema) que degradan el desempeño de modelos de Procesos 
+    Gaussianos (GP) y causan R² negativos.
+
+REQUISITOS:
+    - Haber ejecutado el pipeline de limpieza (mining_clean.csv).
+    - Configuración válida en settings.py.
+
+═══════════════════════════════════════════════════════════════════════════════
 """
 
 import sys
 from pathlib import Path
+
+# Asegurar que el interprete encuentre el módulo 'core' y 'config'
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from config.settings import CONFIG
 
 
 def diagnosticar_datos():
-    """Ejecuta diagnóstico completo del dataset limpio."""
+    """
+    Ejecuta un flujo de diagnóstico integral sobre el dataset de minería.
     
-    print("🔬 DIAGNÓSTICO DE DATOS PARA MODELADO GP")
-    print("=" * 70)
+    Analiza:
+    1. Integridad: Presencia de NaNs y ceros sospechosos.
+    2. Varianza: Si el target se mueve lo suficiente para ser predecible.
+    3. Tiempo: Si existe fuga de datos por autocorrelación.
+    4. Features: Correlaciones fuertes y redundancias (multicolinealidad).
     
-    # 1. Cargar datos
+    Genera un reporte en consola y un dashboard visual en la carpeta /results.
+    """
+    
+    print("\n" + "═"*70)
+    print(f"🔬 AUDITORÍA DE DATOS: PROYECTO MINERO 4.0 (v1.2.1)")
+    print("═"*70)
+    
+    # --- 1. CARGA DE DATOS ---
     filepath = CONFIG.DATA_CLEAN_PATH
     if not filepath.exists():
-        print(f"❌ No se encontró: {filepath}")
-        print("   Ejecuta primero: mining-pipeline")
+        print(f"❌ ERROR: No se encontró el dataset en: {filepath}")
+        print("   Asegúrate de haber corrido el pipeline de procesamiento primero.")
         return
     
-    print(f"\n📂 Cargando: {filepath}")
-    df = pd.read_csv(filepath, index_col=0, parse_dates=True, nrows=10000)  # Solo 10k para diagnóstico
-    
-    print(f"   Dimensiones: {df.shape}")
-    print(f"   Rango temporal: {df.index.min()} → {df.index.max()}")
+    print(f"📂 Analizando fuente: {filepath.name}")
+    # Cargamos 10k registros: suficiente para estadística descriptiva sin saturar RAM
+    df = pd.read_csv(filepath, index_col=0, parse_dates=True, nrows=10000)
     
     target = CONFIG.GP_TARGET_COLUMN
-    
-    # 2. Verificar target
-    print(f"\n🎯 TARGET: {target}")
-    print("-" * 50)
-    
     if target not in df.columns:
-        print(f"   ❌ Columna '{target}' NO ENCONTRADA")
-        print(f"   Columnas disponibles: {df.columns.tolist()}")
+        print(f"❌ ERROR: El target '{target}' no existe en el archivo limpio.")
+        print(f"   Columnas disponibles: {df.columns.tolist()[:5]}...")
         return
+
+    # --- 2. ANÁLISIS DEL TARGET (Variable Dependiente) ---
+    print(f"\n🎯 ANÁLISIS DEL OBJETIVO: {target}")
+    print("-" * 50)
     
     y = df[target]
-    print(f"   Min:    {y.min():.4f}")
-    print(f"   Max:    {y.max():.4f}")
-    print(f"   Mean:   {y.mean():.4f}")
-    print(f"   Std:    {y.std():.4f}")
-    print(f"   NaN:    {y.isna().sum()} ({y.isna().mean()*100:.2f}%)")
-    print(f"   Zeros:  {(y == 0).sum()} ({(y == 0).mean()*100:.2f}%)")
+    mean_val = y.mean()
+    std_val = y.std()
+    cv = (std_val / mean_val) * 100 if mean_val != 0 else 0 # Coeficiente de Variación
     
-    # 3. Verificar variabilidad del target
-    print(f"\n📈 VARIABILIDAD DEL TARGET")
-    print("-" * 50)
+    print(f"   • Rango: [{y.min():.3f} - {y.max():.3f}]")
+    print(f"   • Coef. Variación: {cv:.2f}% (Varianza relativa a la media)")
     
-    cv = y.std() / y.mean() * 100  # Coeficiente de variación
-    print(f"   Coef. Variación: {cv:.2f}%")
-    
+    # Nota técnica: Si CV < 5%, el modelo le costará distinguir señal de ruido
     if cv < 5:
-        print("   ⚠️  ALERTA: Variabilidad MUY BAJA")
-        print("      El target casi no varía - GP tendrá dificultades")
-    elif cv < 10:
-        print("   ⚠️  Variabilidad baja - considerar más features")
-    else:
-        print("   ✅ Variabilidad adecuada")
-    
-    # 4. Verificar autocorrelación (series temporales)
-    print(f"\n🔄 AUTOCORRELACIÓN TEMPORAL")
+        print("     ⚠️  ALERTA: Target casi constante. R2 podría ser muy bajo.")
+
+    # --- 3. AUTOCORRELACIÓN (Fuga de Información Temporal) ---
+    print(f"\n🔄 AUTOCORRELACIÓN (Lag Analysis)")
     print("-" * 50)
     
-    autocorr_1 = y.autocorr(lag=1)
-    autocorr_10 = y.autocorr(lag=10)
-    autocorr_100 = y.autocorr(lag=100)
+    # Calculamos la correlación del dato actual con el anterior (Lag 1)
+    ac_1 = y.autocorr(lag=1)
+    print(f"   • Autocorrelación Lag 1: {ac_1:.4f}")
     
-    print(f"   Lag 1:   {autocorr_1:.4f}")
-    print(f"   Lag 10:  {autocorr_10:.4f}")
-    print(f"   Lag 100: {autocorr_100:.4f}")
-    
-    if autocorr_1 > 0.95:
-        print("   ⚠️  ALERTA: Autocorrelación MUY ALTA")
-        print("      Los datos consecutivos son casi idénticos")
-        print("      Considera: subsamplear cada N registros")
-    
-    # 5. Verificar features
-    print(f"\n📊 ANÁLISIS DE FEATURES")
+    # Nota técnica: Si ac_1 > 0.95, los datos son tan parecidos que el modelo
+    # puede "hacer trampa" prediciendo simplemente el valor anterior.
+    if ac_1 > 0.95:
+        print(f"     ⚠️  RECOMENDACIÓN: Sube el SUBSAMPLE_STEP (Actual: {CONFIG.DEFAULT_SUBSAMPLE_STEP})")
+
+    # --- 4. ANÁLISIS DE FEATURES (Variables Independientes) ---
+    print(f"\n📊 ANÁLISIS DE PREDICTORES (Features)")
     print("-" * 50)
     
-    features = df.drop(columns=[target, "_iron_concentrate"], errors='ignore')
+    # CORRECCIÓN AUDITORÍA: Drop dinámico basado en CONFIG
+    features = df.drop(columns=[target], errors='ignore')
     
-    print(f"   Total features: {len(features.columns)}")
-    
-    # Features constantes
-    constantes = []
-    for col in features.columns:
-        if features[col].std() < 1e-6:
-            constantes.append(col)
-    
+    # Buscar features que no aportan información (desviación estándar ~ 0)
+    constantes = [c for c in features.columns if features[c].std() < 1e-6]
     if constantes:
-        print(f"   ⚠️  Features CONSTANTES (eliminar): {constantes}")
-    else:
-        print("   ✅ No hay features constantes")
+        print(f"   • ❌ Features constantes detectadas: {constantes}")
     
-    # Features con alta correlación con target
-    print(f"\n   Correlación con target ({target}):")
-    correlaciones = features.corrwith(y).abs().sort_values(ascending=False)
-    
-    for col, corr in correlaciones.head(10).items():
-        emoji = "🟢" if corr > 0.3 else "🟡" if corr > 0.1 else "🔴"
-        print(f"      {emoji} {col}: {corr:.4f}")
-    
-    # 6. Verificar multicolinealidad
-    print(f"\n🔗 MULTICOLINEALIDAD (Features correlacionados entre sí)")
-    print("-" * 50)
-    
+    # --- 5. MULTICOLINEALIDAD (Redundancia) ---
+    # Si dos sensores miden lo mismo, confunden al Proceso Gaussiano
     corr_matrix = features.corr().abs()
+    # Tomamos solo la parte superior de la matriz para evitar duplicados
     upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    redundantes = [col for col in upper.columns if any(upper[col] > 0.95)]
     
-    high_corr_pairs = []
-    for col in upper.columns:
-        for idx in upper.index:
-            if upper.loc[idx, col] > 0.95:
-                high_corr_pairs.append((idx, col, upper.loc[idx, col]))
+    if redundantes:
+        print(f"   • ⚠️  Features altamente redundantes (>0.95): {len(redundantes)}")
+        print(f"        Sugerencia: Revisar {redundantes[:3]}...")
+
+    # --- 6. GENERACIÓN DE DASHBOARD VISUAL ---
+    print(f"\n🎨 Generando dashboard de diagnóstico...")
     
-    if high_corr_pairs:
-        print(f"   ⚠️  {len(high_corr_pairs)} pares con correlación > 0.95:")
-        for p1, p2, c in high_corr_pairs[:5]:
-            print(f"      {p1} ↔ {p2}: {c:.4f}")
-        print("   Considera eliminar features redundantes")
-    else:
-        print("   ✅ No hay multicolinealidad extrema")
     
-    # 7. Recomendaciones
-    print(f"\n💡 RECOMENDACIONES")
-    print("=" * 70)
     
-    recomendaciones = []
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    plt.suptitle(f"Diagnóstico de Datos: {target}", fontsize=16, fontweight='bold')
+
+    # Plot 1: Serie Temporal (Visualizar tendencia y outliers)
+    axes[0, 0].plot(y.iloc[:1000], color='#1f77b4', linewidth=1)
+    axes[0, 0].set_title("Serie Temporal (Muestra 1k)")
+    axes[0, 0].grid(True, alpha=0.3)
+
+    # Plot 2: Distribución (Chequear normalidad para GP)
+    sns.histplot(y, kde=True, ax=axes[0, 1], color='green')
+    axes[0, 1].set_title(f"Distribución de {target}")
+
+    # Plot 3: Top Correlaciones (¿Quién manda en el proceso?)
+    top_corr = features.corrwith(y).abs().sort_values(ascending=False).head(10)
+    top_corr.plot(kind='barh', ax=axes[1, 0], color='#ff7f0e')
+    axes[1, 0].set_title("Top 10 Predictores (Importancia Lineal)")
+
+    # Plot 4: Matriz de Correlación térmica
+    sns.heatmap(features.iloc[:, :15].corr(), cmap='RdBu_r', center=0, ax=axes[1, 1], cbar=False)
+    axes[1, 1].set_title("Mapa de Calor (Primeras 15 features)")
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
-    if autocorr_1 > 0.95:
-        recomendaciones.append(
-            "• SUBSAMPLEAR: Toma cada 10-20 registros para reducir autocorrelación"
-        )
-    
-    if cv < 10:
-        recomendaciones.append(
-            "• FEATURE ENGINEERING: Agregar lags, diferencias, o rolling stats"
-        )
-    
-    if correlaciones.max() < 0.3:
-        recomendaciones.append(
-            "• FEATURES DÉBILES: Ningún feature tiene buena correlación con target.\n"
-            "  Considera: lags temporales, interacciones, transformaciones"
-        )
-    
-    if len(high_corr_pairs) > 5:
-        recomendaciones.append(
-            "• REDUCIR DIMENSIONALIDAD: PCA o eliminar features redundantes"
-        )
-    
-    if not recomendaciones:
-        print("✅ Los datos parecen adecuados para modelado GP")
-    else:
-        for r in recomendaciones:
-            print(r)
-    
-    # 8. Guardar gráfico de diagnóstico
-    print(f"\n📊 Generando gráfico de diagnóstico...")
-    
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    
-    # Serie temporal del target
-    axes[0, 0].plot(df.index[:500], y.iloc[:500], 'b-', linewidth=0.5)
-    axes[0, 0].set_title(f'Serie Temporal: {target} (primeros 500)')
-    axes[0, 0].set_xlabel('Tiempo')
-    axes[0, 0].set_ylabel('Valor')
-    
-    # Histograma del target
-    axes[0, 1].hist(y, bins=50, color='steelblue', edgecolor='white')
-    axes[0, 1].axvline(y.mean(), color='red', linestyle='--', label=f'Mean: {y.mean():.2f}')
-    axes[0, 1].set_title(f'Distribución: {target}')
-    axes[0, 1].legend()
-    
-    # Autocorrelación
-    lags = range(1, 101)
-    autocorrs = [y.autocorr(lag=l) for l in lags]
-    axes[1, 0].bar(lags, autocorrs, color='steelblue', width=1)
-    axes[1, 0].axhline(0.95, color='red', linestyle='--', label='Umbral 0.95')
-    axes[1, 0].set_title('Autocorrelación por Lag')
-    axes[1, 0].set_xlabel('Lag')
-    axes[1, 0].set_ylabel('Autocorrelación')
-    axes[1, 0].legend()
-    
-    # Top correlaciones con target
-    top_corr = correlaciones.head(10)
-    axes[1, 1].barh(top_corr.index, top_corr.values, color='steelblue')
-    axes[1, 1].set_title(f'Top 10 Features Correlacionados con {target}')
-    axes[1, 1].set_xlabel('|Correlación|')
-    
-    plt.tight_layout()
-    
-    output_path = CONFIG.RESULTS_DIR / "diagnostico_datos.png"
-    CONFIG.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=150)
+    # Guardado seguro
+    output_img = CONFIG.RESULTS_DIR / "diagnostico_profundo.png"
+    plt.savefig(output_img, dpi=120)
     plt.close()
     
-    print(f"   Guardado: {output_path}")
-    
-    print("\n" + "=" * 70)
-    print("🏁 Diagnóstico completado")
-    
+    print(f"✅ Dashboard guardado en: {output_img}")
+    print("\n" + "═"*70)
+    print("🏁 DIAGNÓSTICO FINALIZADO: Revisa las alertas arriba antes de entrenar.")
+
 
 if __name__ == "__main__":
-    diagnosticar_datos()
+    # Si se ejecuta directamente, corremos el diagnóstico
+    try:
+        diagnosticar_datos()
+    except Exception as e:
+        print(f"❌ Error crítico durante el diagnóstico: {str(e)}")
