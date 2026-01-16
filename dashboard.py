@@ -1,37 +1,36 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-Módulo: dashboard.py | Versión: 3.4.0 (Final Audit Edition)
-Autor: Juan Galaz (Arquitectura Minera 4.0)
-Fecha: 16 de Enero, 2026
+Módulo: dashboard.py
+Versión: 3.5.0 (Real Data Edition)
+Proyecto: Minero 4.0 - Pipeline Universal de IA Industrial
 ═══════════════════════════════════════════════════════════════════════════════
 
-DESCRIPCIÓN GENERAL
-------------------
-Centro de Control HMI (Human-Machine Interface) de Alta Fidelidad para entornos
-minero-industriales.
+DESCRIPCIÓN:
+    Centro de Control HMI (Human-Machine Interface) de Alta Fidelidad.
+    
+    Este módulo implementa un Dashboard interactivo que:
+    1. Orquesta un Gemelo Digital del proceso de flotación.
+    2. Simula escenarios "What-If" en tiempo real.
+    3. Ejecuta inferencia con modelos IA (GP o GBR).
+    4. Genera evidencia forense certificable en PDF.
 
-Este módulo implementa un Dashboard interactivo que:
-1.  Orquesta un Gemelo Digital del proceso de flotación.
-2.  Simula escenarios "What-If" en tiempo real con física + ruido estocástico.
-3.  Ejecuta inferencia con modelos IA (Gradient Boosting).
-4.  Genera evidencia forense certificable en PDF (Auditoría Técnica).
+═══════════════════════════════════════════════════════════════════════════════
+HISTORIAL DE CAMBIOS:
+═══════════════════════════════════════════════════════════════════════════════
 
-PATRONES DE DISEÑO
------------------
-- Singleton: Para la carga del motor de inferencia (evita recargas en memoria).
-- State Machine: Gestión del estado de sesión (punteros, gráficos, predicciones).
-- Observer: La interfaz reacciona a los cambios en los sliders de simulación.
+    [v3.5.0 - Enero 2026] REAL DATA EDITION
+    ---------------------------------------
+    - CORREGIDO: Confianza IA ahora es REAL (calculada desde std del modelo)
+    - CORREGIDO: Línea "Soft-Sensor IA" ahora usa predict_series() REAL
+    - CORREGIDO: Feature Importance usa get_feature_importance() REAL
+    - ACTUALIZADO: Usa MiningDataAdapter en lugar de UniversalAdapter
+    - MEJORADO: Manejo de errores más robusto
+    
+    [v3.4.0] Final Audit Edition
+    ----------------------------
+    - Documentación extendida
+    - Estética Dark Industrial
 
-COMPONENTES
------------
-- Visualización: Streamlit + Plotly (Motor Kaleido para renderizado estático).
-- Inferencia: MiningInference (Core).
-- Reportabilidad: ReportManager (Generación de PDF con sanitización).
-
-NOTA DE SEGURIDAD
-----------------
-Este sistema requiere la librería 'kaleido' para la exportación de imágenes.
-Ejecutar: pip install -U kaleido
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -46,23 +45,23 @@ import plotly.express as px
 from datetime import datetime
 import time
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 # =============================================================================
-# 2. IMPORTACIONES DE ARQUITECTURA PROPIA (CAPA DE NEGOCIO)
+# 2. IMPORTACIONES DE ARQUITECTURA PROPIA
 # =============================================================================
-# Motor de Inteligencia Artificial (Cerebro del sistema)
 from core.inference_engine import MiningInference
 
-# Adaptador de Datos (ETL desacoplado para ingesta agnóstica)
-from core.adapters.universal_adapter import UniversalAdapter
+# [v3.5.0] Usar el nuevo adapter unificado
+from core.adapters import MiningDataAdapter
 
-# Sistema de Reportabilidad (Generación de PDFs forenses)
-# Nota: Importamos ShiftReportData para mantener el contrato de datos estricto
 from core.report_generator import ReportManager, ShiftReportData
 
 
 # =============================================================================
-# 3. CONFIGURACIÓN VISUAL Y UX (USER EXPERIENCE)
+# 3. CONFIGURACIÓN VISUAL Y UX
 # =============================================================================
 st.set_page_config(
     page_title="Mining 4.0 - Control Room",
@@ -71,33 +70,23 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Inyección de CSS para estética "Dark Industrial + Cyberpunk"
-# Objetivo: Reducir fatiga visual en operadores de sala de control nocturna
-# y resaltar alertas críticas con colores neón.
 st.markdown("""
     <style>
-    /* Fondo oscuro profundo para contraste */
     .stApp { background-color: #050505; color: #e0e0e0; }
-    
-    /* KPIs tipo HUD (Head-Up Display) con efecto de resplandor */
     [data-testid="stMetricValue"] { 
         font-size: 2.5rem; 
-        color: #00f2ea; /* Cian Eléctrico */
+        color: #00f2ea;
         font-family: 'Segoe UI', sans-serif;
         font-weight: 700; 
         text-shadow: 0 0 10px rgba(0, 242, 234, 0.3);
     }
-    
-    /* Contenedores de métricas con borde de estado */
     .stMetric { 
         background-color: #111; 
         padding: 15px; 
         border: 1px solid #333;
-        border-left: 5px solid #ff00ff; /* Fucsia Neón (Indicador IA) */
+        border-left: 5px solid #ff00ff;
         border-radius: 5px;
     }
-    
-    /* Optimización de pestañas para navegación rápida */
     .stTabs [data-baseweb="tab-list"] { gap: 5px; }
     .stTabs [data-baseweb="tab"] { background-color: #1a1a1a; border-radius: 2px; }
     </style>
@@ -109,68 +98,101 @@ st.markdown("""
 # =============================================================================
 @st.cache_resource
 def load_engine():
-    """
-    Inicializa el Motor de Inferencia IA como un Singleton.
-    
-    Por qué usamos @st.cache_resource:
-        Cargar modelos de ML (Pickle/Joblib) es costoso en I/O y RAM.
-        Esta función asegura que el modelo se cargue UNA sola vez al inicio
-        y se reutilice en cada interacción del usuario, garantizando
-        una latencia de inferencia < 50ms.
-    
-    Returns:
-        MiningInference: Instancia inicializada del motor.
-    """
+    """Inicializa el Motor de Inferencia IA como Singleton."""
     return MiningInference()
 
 
+@st.cache_resource
+def load_adapter():
+    """Inicializa el Adapter de datos como Singleton."""
+    return MiningDataAdapter("dataset_config.json")
+
+
 # =============================================================================
-# 5. ORQUESTADOR PRINCIPAL (MAIN LOOP)
+# 5. FUNCIONES AUXILIARES
+# =============================================================================
+
+def get_confidence_color(confidence_pct: float) -> str:
+    """Retorna color según nivel de confianza."""
+    if confidence_pct >= 90:
+        return "#00ff00"  # Verde
+    elif confidence_pct >= 70:
+        return "#ffff00"  # Amarillo
+    elif confidence_pct >= 50:
+        return "#ff9900"  # Naranja
+    else:
+        return "#ff0000"  # Rojo
+
+
+def get_confidence_label(confidence_pct: float) -> str:
+    """Retorna etiqueta según nivel de confianza."""
+    if confidence_pct >= 90:
+        return "Alta"
+    elif confidence_pct >= 70:
+        return "Media"
+    elif confidence_pct >= 50:
+        return "Baja"
+    else:
+        return "Muy Baja"
+
+
+def truncate_feature_name(name: str, max_len: int = 25) -> str:
+    """Acorta nombres de features para visualización."""
+    if len(name) <= max_len:
+        return name
+    # Tomar inicio y final
+    return name[:12] + "..." + name[-10:]
+
+
+# =============================================================================
+# 6. ORQUESTADOR PRINCIPAL
 # =============================================================================
 def run_dashboard():
-    """
-    Función principal que ejecuta el ciclo de vida del Dashboard.
-    Maneja la ingesta, simulación, inferencia y renderizado.
-    """
+    """Función principal que ejecuta el ciclo de vida del Dashboard."""
     
-    # --- A. INICIALIZACIÓN DE CAPA DE SERVICIOS ---
-    engine = load_engine()
-    adapter = UniversalAdapter("dataset_config.json")
+    # --- A. INICIALIZACIÓN ---
+    try:
+        engine = load_engine()
+        adapter = load_adapter()
+    except Exception as e:
+        st.error(f"❌ Error inicializando sistema: {e}")
+        st.info("Asegúrate de haber entrenado un modelo con train_universal.py")
+        return
     
-    # --- B. INGESTA Y PREPROCESAMIENTO TEMPORAL (TIME-SHIFTING) ---
-    # Carga datos históricos
-    df_full = adapter.load_data()
+    # --- B. INGESTA DE DATOS ---
+    try:
+        df_full = adapter.load_data()
+    except Exception as e:
+        st.error(f"❌ Error cargando datos: {e}")
+        return
     
-    # [LÓGICA CRÍTICA]: Time-Shifting
-    # Para que el Gemelo Digital parezca "En Vivo", calculamos la diferencia
-    # entre la última fecha del CSV y el "Ahora" real, y desplazamos todo el índice.
-    # Esto permite usar datasets viejos (2016) como si fueran de 2026.
-    if not df_full.empty:
+    # Time-Shifting para simular datos "en vivo"
+    if not df_full.empty and isinstance(df_full.index, pd.DatetimeIndex):
         last_csv_date = df_full.index.max()
         now = datetime.now()
         time_shift = now - last_csv_date
         df_full.index = df_full.index + time_shift
 
-    # Inicialización del puntero de streaming (Buffer de memoria)
+    # Inicialización del puntero
     if 'pointer' not in st.session_state:
         st.session_state.pointer = 150
 
     # =========================================================================
-    # 6. BARRA LATERAL (CENTRO DE MANDO Y SIMULACIÓN)
+    # 7. BARRA LATERAL
     # =========================================================================
     with st.sidebar:
         st.title("🕹️ Control Room")
         st.caption(f"⏱️ System Time: {datetime.now().strftime('%H:%M:%S')}")
         st.markdown("---")
         
-        # --- Controles de Simulación ---
+        # Controles
         st.subheader("⚙️ Configuración")
-        update_speed = st.slider("Ciclo de Refresco (s)", 1, 5, 2, help="Velocidad del bucle principal")
+        update_speed = st.slider("Ciclo de Refresco (s)", 1, 5, 2)
         target_goal = st.number_input("KPI Objetivo Recup. (%)", 80.0, 95.0, 85.0)
         
         st.markdown("---")
         
-        # --- Motor What-If (Simulador de Escenarios) ---
+        # Motor What-If
         st.subheader("🧪 What-If Engine")
         st.info("Perturbación de variables en tiempo real:")
         
@@ -182,181 +204,278 @@ def run_dashboard():
         
         st.markdown("---")
         
-        # --- GENERADOR DE AUDITORÍA (PDF) ---
+        # Info del modelo
+        st.subheader("🤖 Modelo Activo")
+        model_info = engine.get_model_info()
+        st.caption(f"Tipo: **{model_info.get('model_type', 'N/A')}**")
+        st.caption(f"Target: `{model_info.get('target_column', 'N/A')}`")
+        st.caption(f"Features: {model_info.get('n_features', 0)}")
+        
+        st.markdown("---")
+        
+        # Generador de Auditoría
         if st.button("📥 Generar Auditoría (PDF)", type="primary"):
-            # Feedback visual de proceso largo
             with st.status("🛠️ Ejecutando protocolo forense...", expanded=True) as status:
                 try:
-                    # PASO 1: Renderizado de Evidencia Visual (Snapshot)
-                    st.write("📸 Capturando estado del sistema (Kaleido Render)...")
+                    st.write("📸 Capturando estado del sistema...")
                     Path("results").mkdir(exist_ok=True)
                     chart_path = "results/snapshot_trend.png"
                     
-                    # Verificamos si existe un gráfico previo en memoria para guardar
                     if 'last_fig' in st.session_state:
-                        st.session_state.last_fig.write_image(chart_path, width=1200, height=500, scale=2)
-                        time.sleep(1.0) # Espera técnica para escritura en disco
+                        st.session_state.last_fig.write_image(
+                            chart_path, width=1200, height=500, scale=2
+                        )
+                        time.sleep(1.0)
                     else:
-                        st.warning("⚠️ Buffer gráfico vacío. El reporte no tendrá imagen.")
                         chart_path = None
                     
-                    # PASO 2: Lógica de Recomendación Inteligente (Rule-Based AI)
                     st.write("🧠 Generando estrategia operativa...")
                     
-                    # Recuperamos la última predicción
-                    mock_rec = 86.5 if 'last_pred' not in st.session_state else st.session_state.last_pred
+                    # Usar predicción real
+                    last_pred = st.session_state.get('last_pred', {})
+                    recovery = last_pred.get('predicted_value', 85.0)
+                    confidence = last_pred.get('confidence_pct', 85.0)
                     
-                    if mock_rec < target_goal:
-                        rec_text = "⚠️ CRÍTICO: Desviación negativa. Aumentar aire (+5%) y revisar dosificación."
+                    if recovery < target_goal:
+                        rec_text = f"⚠️ CRÍTICO: Recuperación {recovery:.1f}% < objetivo {target_goal}%. Aumentar aire (+5%) y revisar dosificación."
                     else:
-                        rec_text = "✅ MANTENER: Operación nominal estable. Mantener set-points."
+                        rec_text = f"✅ MANTENER: Recuperación {recovery:.1f}% ≥ objetivo. Operación nominal."
 
-                    # Simulamos estado de sensores basado en el slider 'sim_air'
                     air_status = f"OK (Factor: {sim_air}x)"
                     
-                    # PASO 3: Construcción del Contrato de Datos (DTO)
-                    # Empaquetamos todo en un objeto tipado para evitar errores en el PDF
                     report_data = ShiftReportData(
                         timestamp=datetime.now(),
-                        recovery_avg=mock_rec,
+                        recovery_avg=recovery,
                         recovery_target=target_goal,
-                        financial_impact=(mock_rec - 80) * 100000,
+                        financial_impact=(recovery - 80) * 100000,
                         model_name=engine.model_wrapper.model_type,
                         sensor_health={
                             "Flujo Aire": air_status, 
                             "Nivel Pulpa": "OK (Estable)", 
-                            "DCS Link": "ONLINE (12ms)"
+                            "DCS Link": "ONLINE (12ms)",
+                            "Confianza IA": f"{confidence:.1f}%"
                         },
                         recommendation=rec_text,
                         chart_path=chart_path if chart_path and Path(chart_path).exists() else None
                     )
                     
-                    # PASO 4: Generación Física del Archivo
                     manager = ReportManager()
                     pdf_path = manager.generate(report_data)
                     
                     status.update(label="✅ Auditoría Finalizada", state="complete", expanded=False)
                     
-                    # Entrega del archivo al usuario
                     with open(pdf_path, "rb") as f:
-                        st.download_button("📂 Descargar Documento Oficial", f, file_name=Path(pdf_path).name)
+                        st.download_button(
+                            "📂 Descargar Documento Oficial", 
+                            f, 
+                            file_name=Path(pdf_path).name
+                        )
                         
                 except Exception as e:
                     st.error(f"Fallo crítico en reporte: {e}")
-                    st.info("Tip: Verifique instalación de librería 'kaleido'.")
 
     # =========================================================================
-    # 7. ÁREA PRINCIPAL (VISUALIZACIÓN Y CONTROL)
+    # 8. ÁREA PRINCIPAL
     # =========================================================================
     st.title("🏭 Mining 4.0: Digital Twin")
     st.markdown(f"**Estado:** `ONLINE` | **Modelo Activo:** `{engine.model_path.stem}`")
 
-    # --- C. PREPROCESAMIENTO DE VENTANA (BUFFERING) ---
-    # Seleccionamos los últimos 50 registros para alimentar al modelo
+    # --- C. PREPROCESAMIENTO DE VENTANA ---
     window = df_full.iloc[st.session_state.pointer - 50 : st.session_state.pointer].copy()
     
-    # --- D. MOTOR DE SIMULACIÓN "WHAT-IF" (MODO AGRESIVO) ---
-    # Si el operador mueve el slider, alteramos físicamente los datos de entrada
+    # --- D. MOTOR WHAT-IF ---
     if sim_air != 1.0:
-        # Búsqueda inteligente de columnas de aire
         air_cols = [c for c in window.columns if any(x in c.lower() for x in ['air', 'flujo', 'flow'])]
         
         if air_cols:
-            # 1. Aplicación de Física: Multiplicación directa
             window[air_cols] = window[air_cols] * sim_air
-            
-            # 2. Inyección de Ruido Estocástico (Realismo):
-            # Agregamos pequeña varianza para que el gráfico "reaccione" visualmente
-            # y demuestre sensibilidad, evitando líneas planas artificiales.
-            noise = np.random.normal(0, 0.05 * abs(1 - sim_air), window.shape)
-            window = window + noise
-            
+            noise = np.random.normal(0, 0.05 * abs(1 - sim_air), (len(window), len(air_cols)))
+            window[air_cols] = window[air_cols] + noise
             st.toast(f"💨 Simulador Activo: Ajustando {len(air_cols)} sensores por factor {sim_air}x")
 
-    # --- E. INFERENCIA (PREDICCIÓN) ---
-    res = engine.predict_scenario(window)
-    # Guardamos predicción en sesión para persistencia
-    st.session_state.last_pred = res['predicted_value']
+    # --- E. INFERENCIA REAL ---
+    try:
+        res = engine.predict_scenario(window)
+        st.session_state.last_pred = res
+    except Exception as e:
+        st.error(f"Error en predicción: {e}")
+        res = {
+            'predicted_value': 0.0,
+            'real_value': None,
+            'confidence_pct': 0.0,
+            'confidence_std': 0.0,
+            'model_used': 'Error'
+        }
 
-    # --- F. PANEL DE KPIs (HEADS-UP DISPLAY) ---
+    # --- F. PANEL DE KPIs (CON DATOS REALES) ---
     k1, k2, k3 = st.columns(3)
+    
     with k1:
-        # Cálculo de desviación vs Real (si existe dato de laboratorio)
-        delta = f"{res['predicted_value'] - res['real_value']:.2f}% vs Real" if res['real_value'] else "---"
+        delta = None
+        if res['real_value'] is not None:
+            diff = res['predicted_value'] - res['real_value']
+            delta = f"{diff:+.2f}% vs Real"
         st.metric("Predicción Recuperación", f"{res['predicted_value']:.2f}%", delta)
+    
     with k2:
-        # Traducción Financiera: 1% Recup = $100k USD (Base teórica)
         roi = (res['predicted_value'] - 80) * 100000
         st.metric("Impacto Económico (Día)", f"${roi/1000:,.1f}k USD")
+    
     with k3:
-        st.metric("Confianza IA", "99.2%", "Estable")
+        # [v3.5.0] CONFIANZA REAL calculada desde el modelo
+        confidence = res['confidence_pct']
+        conf_label = get_confidence_label(confidence)
+        st.metric("Confianza IA", f"{confidence:.1f}%", conf_label)
 
-    # --- G. VISUALIZACIÓN AVANZADA (TABS) ---
+    # --- G. VISUALIZACIÓN ---
     tab_trend, tab_xai = st.tabs(["📈 Tendencia Operativa", "🧠 Explicabilidad (XAI)"])
 
     with tab_trend:
         st.subheader("Curva de Recuperación: Real vs Predicha")
-        # Ventana histórica extendida para graficar (100 puntos)
-        hist_window = df_full.iloc[st.session_state.pointer - 100 : st.session_state.pointer]
         
-        fig = go.Figure()
-        
-        # Traza 1: Planta Real (Naranja Industrial)
-        fig.add_trace(go.Scatter(
-            x=hist_window.index, y=hist_window[engine.model_wrapper.target_col], 
-            name="Planta (Real)", line=dict(color='#f4a261', width=3)
-        ))
-        
-        # Traza 2: Soft-Sensor IA (FUCSIA NEÓN)
-        # El color #ff00ff está elegido específicamente por su alto contraste sobre negro
-        fig.add_trace(go.Scatter(
-            x=hist_window.index, y=hist_window[engine.model_wrapper.target_col] * 0.998, 
-            name="Soft-Sensor IA", line=dict(color='#ff00ff', width=2, dash='dot')
-        ))
-        
-        # Configuración "Dark Mode" del gráfico
-        fig.update_layout(
-            template="plotly_dark", height=400, margin=dict(t=10, b=10, l=10, r=10),
-            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-            legend=dict(orientation="h", y=1.1)
-        )
-        
-        # Guardamos la figura en Session State para que el generador de PDF pueda leerla
-        st.session_state.last_fig = fig
-        st.plotly_chart(fig, use_container_width=True)
+        # [v3.5.0] PREDICCIONES REALES con predict_series()
+        try:
+            hist_window = df_full.iloc[st.session_state.pointer - 100 : st.session_state.pointer]
+            
+            # Generar serie de predicciones REALES
+            with st.spinner("Calculando predicciones..."):
+                pred_series = engine.predict_series(hist_window, n_points=100, min_history=30)
+            
+            fig = go.Figure()
+            
+            # Traza 1: Planta Real
+            target_col = engine.model_wrapper.target_col
+            fig.add_trace(go.Scatter(
+                x=hist_window.index, 
+                y=hist_window[target_col], 
+                name="Planta (Real)", 
+                line=dict(color='#f4a261', width=3)
+            ))
+            
+            # Traza 2: Predicciones REALES del Soft-Sensor
+            if not pred_series.empty:
+                fig.add_trace(go.Scatter(
+                    x=pred_series.index, 
+                    y=pred_series['predicted'], 
+                    name="Soft-Sensor IA", 
+                    line=dict(color='#ff00ff', width=2, dash='dot')
+                ))
+                
+                # Banda de confianza (si hay std)
+                if 'confidence_std' in pred_series.columns and pred_series['confidence_std'].sum() > 0:
+                    upper = pred_series['predicted'] + 2 * pred_series['confidence_std']
+                    lower = pred_series['predicted'] - 2 * pred_series['confidence_std']
+                    
+                    fig.add_trace(go.Scatter(
+                        x=pred_series.index,
+                        y=upper,
+                        mode='lines',
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo='skip'
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=pred_series.index,
+                        y=lower,
+                        mode='lines',
+                        line=dict(width=0),
+                        fill='tonexty',
+                        fillcolor='rgba(255, 0, 255, 0.15)',
+                        name='Intervalo 95%'
+                    ))
+            
+            # Línea de objetivo
+            fig.add_hline(
+                y=target_goal, 
+                line_dash="dash", 
+                line_color="#00ff00",
+                annotation_text=f"Objetivo: {target_goal}%"
+            )
+            
+            fig.update_layout(
+                template="plotly_dark", 
+                height=400, 
+                margin=dict(t=10, b=10, l=10, r=10),
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)',
+                legend=dict(orientation="h", y=1.1)
+            )
+            
+            st.session_state.last_fig = fig
+            st.plotly_chart(fig, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error generando gráfico: {e}")
+            logger.exception("Error en gráfico de tendencia")
 
     with tab_xai:
-        st.info("Drivers: Variables que más impactan la predicción actual")
-        # Mockup de Importancia de Variables (Feature Importance)
-        imp = {"Aire (Rougher)": 0.35, "Nivel Pulpa": 0.25, "P80": 0.20, "Colector": 0.15}
-        fig_bar = px.bar(
-            x=list(imp.values()), y=list(imp.keys()), orientation='h', 
-            template="plotly_dark", color_discrete_sequence=['#00f2ea']
-        )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.subheader("🎯 Drivers: Variables que más impactan la predicción")
+        
+        # [v3.5.0] FEATURE IMPORTANCE REAL
+        try:
+            importance = engine.get_feature_importance(top_n=10)
+            
+            if importance:
+                # Preparar datos para gráfico
+                feat_names = [truncate_feature_name(k) for k in importance.keys()]
+                feat_values = list(importance.values())
+                
+                fig_bar = go.Figure(go.Bar(
+                    x=feat_values,
+                    y=feat_names,
+                    orientation='h',
+                    marker_color='#00f2ea',
+                    text=[f"{v:.1%}" for v in feat_values],
+                    textposition='outside'
+                ))
+                
+                fig_bar.update_layout(
+                    template="plotly_dark",
+                    height=400,
+                    margin=dict(l=10, r=50, t=10, b=10),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis_title="Importancia Relativa",
+                    yaxis=dict(autorange="reversed")
+                )
+                
+                st.plotly_chart(fig_bar, use_container_width=True)
+                
+                # Interpretación
+                top_feat = list(importance.keys())[0]
+                st.info(
+                    f"💡 **Insight**: La variable más influyente es `{top_feat}` "
+                    f"con {list(importance.values())[0]:.1%} de importancia relativa."
+                )
+            else:
+                st.warning("No se pudo calcular feature importance")
+                
+        except Exception as e:
+            st.error(f"Error calculando importancia: {e}")
 
-    # --- H. TICKER DE ESTADO (PIE DE PÁGINA) ---
+    # --- H. TICKER DE ESTADO ---
     st.markdown("---")
     c1, c2, c3, c4 = st.columns(4)
     c1.caption("📡 **SCADA:** Conectado (12ms)")
     c2.caption("🧪 **Lab:** Muestras L-204 OK")
     c3.caption(f"👷 **Turno:** {datetime.now().strftime('%A')} - Guardia B")
-    c4.caption("💾 **Backup:** Auto-Saved")
+    c4.caption(f"🤖 **Modelo:** {res['model_used']}")
 
-    # --- I. BUCLE DE EJECUCIÓN (REFRESCO) ---
+    # --- I. BUCLE DE EJECUCIÓN ---
     time.sleep(update_speed)
     st.session_state.pointer += 1
     
-    # Reinicio del puntero (Loop infinito sobre dataset)
-    if st.session_state.pointer >= len(df_full): st.session_state.pointer = 150
+    if st.session_state.pointer >= len(df_full): 
+        st.session_state.pointer = 150
     st.rerun()
 
+
 # =============================================================================
-# ENTRY POINT (PUNTO DE ENTRADA)
+# ENTRY POINT
 # =============================================================================
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     try:
         run_dashboard()
     except Exception as e:
-        # Fallback de seguridad para no mostrar trazas de error al usuario
         st.error(f"System Offline: {e}")
