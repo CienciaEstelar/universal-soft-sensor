@@ -1,3 +1,12 @@
+¡Ya vi el error en las capturas, bro! 🕵️‍♂️🔍
+
+El problema es **súper común**. Si te fijas en el error rojo de la segunda foto (`Lexical error...`), dice que se encontró con el texto `✨ Características Clave` justo después de terminar el gráfico.
+
+**El diagnóstico:** GitHub cree que el texto de abajo (las características) es parte del código del gráfico porque **faltaron las tres comillas invertidas de cierre (`````) al final del bloque Mermaid.**
+
+Aquí tienes el **README.md** entero, blindado y corregido. Solo dale a "Copy", borra todo lo que tienes en tu archivo y pega esto.
+
+```markdown
 # ⚒️ Proyecto Minero 4.0: Inteligencia Artificial para Procesos de Flotación
 
 <div align="center">
@@ -21,6 +30,7 @@ El sistema robusto combina la elegancia matemática de los **Procesos Gaussianos
 ### 🎯 Objetivo Principal
 Predecir variables críticas del proceso de flotación (Target) utilizando variables operativas (Features) con una precisión superior al 95%, permitiendo el control avanzado de procesos (APC).
 
+---
 
 ## 🏗️ Arquitectura del Sistema
 
@@ -64,7 +74,43 @@ graph TD
         InferenceEngine --> Prediction(("🎯 Predicción<br>Valor + Incertidumbre")):::ai
     end
 
-✨ Características Clave (Senior Level)🛡️ Ingesta Universal & Segura: Adaptador agnóstico capaz de leer CSVs masivos, detectando automáticamente timestamps y separadores. Incluye filtrado por Regex para evitar data leakage de columnas futuras.🧠 Modelado Híbrido Inteligente (v4):Intenta modelar con Gaussian Process (ideal para incertidumbre) usando kernels Matérn restringidos físicamente.Si el GP no supera un umbral de calidad (R² < 0.6), activa automáticamente un Fallback a Gradient Boosting (más robusto ante datos ruidosos o no estacionarios).⏳ Conciencia Temporal: Respeta estrictamente la flecha del tiempo en el entrenamiento (shuffle=False) y genera features de lags/ventanas móviles para capturar la dinámica del proceso.🚀 Motor de Inferencia Dedicado: Módulo independiente para producción que carga el modelo campeón automáticamente y asegura que los datos de entrada tengan el mismo esquema que en el entrenamiento.🏆 Resultados de DesempeñoEl sistema ha sido probado en datasets de minería real (ej. Gold Recovery), logrando una precisión excepcional al activar el modo de respaldo (Gradient Boosting).MétricaResultado (Gradient Boosting)Interpretación MineraR² Score0.9707El modelo explica el 97% de la variabilidad del proceso. Excelente.MAPE1.43%El error porcentual promedio es menor al 1.5%. Calidad de laboratorio.RMSE1.74Desviación estándar baja en las mismas unidades de la variable objetivo.📉 Nota: Los gráficos detallados de ajuste y análisis de residuos se generan automáticamente en la carpeta results/ después de cada entrenamiento.🚀 Instalación y Configuración1. Clonar y preparar entornoBashgit clone [https://github.com/CienciaEstelar/proyecto_minero_4.0.git](https://github.com/CienciaEstelar/proyecto_minero_4.0.git)
+```
+
+---
+
+## ✨ Características Clave (Senior Level)
+
+* **🛡️ Ingesta Universal & Segura**: Adaptador agnóstico capaz de leer CSVs masivos, detectando automáticamente timestamps y separadores. Incluye filtrado por Regex para evitar *data leakage* de columnas futuras.
+* **🧠 Modelado Híbrido Inteligente (v4)**:
+* Intenta modelar con **Gaussian Process** (ideal para incertidumbre) usando kernels Matérn restringidos físicamente.
+* Si el GP no supera un umbral de calidad (R² < 0.6), activa automáticamente un **Fallback a Gradient Boosting** (más robusto ante datos ruidosos o no estacionarios).
+
+
+* **⏳ Conciencia Temporal**: Respeta estrictamente la flecha del tiempo en el entrenamiento (`shuffle=False`) y genera features de lags/ventanas móviles para capturar la dinámica del proceso.
+* **🚀 Motor de Inferencia Dedicado**: Módulo independiente para producción que carga el modelo campeón automáticamente y asegura que los datos de entrada tengan el mismo esquema que en el entrenamiento.
+
+---
+
+## 🏆 Resultados de Desempeño
+
+El sistema ha sido probado en datasets de minería real (ej. Gold Recovery), logrando una precisión excepcional al activar el modo de respaldo (Gradient Boosting).
+
+| Métrica | Resultado (Gradient Boosting) | Interpretación Minera |
+| --- | --- | --- |
+| **R² Score** | **0.9707** | El modelo explica el **97%** de la variabilidad del proceso. Excelente. |
+| **MAPE** | **1.43%** | El error porcentual promedio es menor al 1.5%. Calidad de laboratorio. |
+| **RMSE** | **1.74** | Desviación estándar baja en las mismas unidades de la variable objetivo. |
+
+> 📉 **Nota:** Los gráficos detallados de ajuste y análisis de residuos se generan automáticamente en la carpeta `results/` después de cada entrenamiento.
+
+---
+
+## 🚀 Instalación y Configuración
+
+### 1. Clonar y preparar entorno
+
+```bash
+git clone https://github.com/CienciaEstelar/proyecto_minero_4.0.git
 cd proyecto_minero_4.0
 
 # Crear entorno virtual (recomendado)
@@ -74,9 +120,49 @@ source .venv/bin/activate  # Linux/Mac
 
 # Instalar dependencias
 pip install -r requirements.txt
-2. Configurar Datos y VariablesColoca tu archivo CSV de sensores en la carpeta data/.Edita el archivo config/dataset_config.json para apuntar a tu archivo y definir tu columna objetivo (Target).(Opcional) Copia .env.example a .env para ajustar parámetros avanzados.🎮 Uso del SistemaEl proyecto cuenta con una interfaz de línea de comandos (CLI) profesional impulsada por la librería rich.🏋️‍♂️ Entrenamiento (Training Pipeline)Ejecuta el orquestador universal. Él se encargará de todo el flujo ETL y el modelado.Bashpython train_universal.py
-Si el entrenamiento es exitoso, el modelo campeón se guardará automáticamente en la carpeta models/.🔮 Inferencia (Simulación de Producción)Prueba el modelo guardado simulando datos en tiempo real.Bashpython predict_universal.py
-Esto cargará el último modelo y mostrará una tabla comparativa de "Valor Real vs. Predicción IA" para validar el desempeño.📂 Estructura del ProyectoBashproyecto_minero_4.0/
+
+```
+
+### 2. Configurar Datos y Variables
+
+1. Coloca tu archivo CSV de sensores en la carpeta `data/`.
+2. Edita el archivo `config/dataset_config.json` para apuntar a tu archivo y definir tu columna objetivo (Target).
+3. (Opcional) Copia `.env.example` a `.env` para ajustar parámetros avanzados.
+
+---
+
+## 🎮 Uso del Sistema
+
+El proyecto cuenta con una interfaz de línea de comandos (CLI) profesional impulsada por la librería `rich`.
+
+### 🏋️‍♂️ Entrenamiento (Training Pipeline)
+
+Ejecuta el orquestador universal. Él se encargará de todo el flujo ETL y el modelado.
+
+```bash
+python train_universal.py
+
+```
+
+*Si el entrenamiento es exitoso, el modelo campeón se guardará automáticamente en la carpeta `models/`.*
+
+### 🔮 Inferencia (Simulación de Producción)
+
+Prueba el modelo guardado simulando datos en tiempo real.
+
+```bash
+python predict_universal.py
+
+```
+
+*Esto cargará el último modelo y mostrará una tabla comparativa de "Valor Real vs. Predicción IA" para validar el desempeño.*
+
+---
+
+## 📂 Estructura del Proyecto
+
+```bash
+proyecto_minero_4.0/
 ├── config/                  # ⚙️ Configuración del sistema (JSON y Python)
 ├── core/                    # 🧠 El Cerebro del sistema
 │   ├── adapters/            # Conectores de datos (Ingesta)
@@ -92,4 +178,19 @@ Esto cargará el último modelo y mostrará una tabla comparativa de "Valor Real
 ├── predict_universal.py     # 🔮 Orquestador de Inferencia (CLI)
 ├── requirements.txt         # Dependencias del proyecto
 └── README.md                # Documentación
-<div align="center">Desarrollado con ⛏️ y 🧠 para la Industria 4.0Juan Galaz | Arquitectura Minera</div>
+
+```
+
+---
+
+<div align="center">
+
+**Desarrollado con ⛏️ y 🧠 para la Industria 4.0**
+
+Juan Galaz | Arquitectura Minera
+
+</div>
+
+```
+
+```
