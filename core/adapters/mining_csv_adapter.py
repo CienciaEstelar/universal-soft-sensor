@@ -16,6 +16,15 @@ Uso:
     adapter = MiningCSVAdapter("/path/to/data.csv")
     for chunk in adapter.stream(chunk_size=25000):
         process(chunk)
+
+HISTORIAL DE CAMBIOS:
+    [v1.1.0 - 2026]
+        [FIX] Eliminado parámetro infer_datetime_format=True en _parse_date_column().
+              Fue deprecado en pandas 2.0 y REMOVIDO en pandas 2.2.
+              requirements.txt exige pandas>=2.0.0, por lo que cualquier instalación
+              con pandas ≥2.2 causaba TypeError silencioso en parseo de fechas.
+              Reemplazado por pd.to_datetime con errors='coerce' (comportamiento
+              equivalente, compatible con todas las versiones del rango soportado).
 """
 
 import pandas as pd
@@ -121,8 +130,13 @@ class MiningCSVAdapter:
         
         Estrategia:
         1. Intentar cada formato conocido
-        2. Si todos fallan, usar inferencia automática
+        2. Si todos fallan, usar inferencia automática de pandas
         3. Retornar NaT para valores que no se pueden parsear
+
+        [FIX v1.1.0] Eliminado infer_datetime_format=True.
+        Fue removido en pandas 2.2. Reemplazado por pd.to_datetime
+        con errors='coerce', que tiene comportamiento equivalente
+        en todas las versiones del rango soportado (pandas >=2.0).
         """
         # Guardar valores originales para retry
         original_values = series.copy()
@@ -140,9 +154,12 @@ class MiningCSVAdapter:
                 continue
         
         # Fallback: inferencia automática de pandas
-        logger.debug("Usando inferencia automática de fechas")
+        # [FIX] ANTES: pd.to_datetime(original_values, errors='coerce', infer_datetime_format=True)
+        #              ↑ infer_datetime_format removido en pandas 2.2 — causa TypeError
+        # AHORA: pd.to_datetime sin ese parámetro (comportamiento equivalente en pandas >=2.0)
+        logger.debug("Usando inferencia automática de fechas (pandas nativo)")
         try:
-            return pd.to_datetime(original_values, errors='coerce', infer_datetime_format=True)
+            return pd.to_datetime(original_values, errors='coerce')
         except Exception as e:
             logger.warning(f"Fallo en parseo de fechas: {e}")
             return pd.Series([pd.NaT] * len(series), index=series.index)
