@@ -1,13 +1,13 @@
 # ⚒️ Proyecto Minero 4.0
 
-## Inteligencia Artificial para Procesos de Flotación
+## Soft-Sensor Industrial con Gaussian Processes
 
 <div align="center">
 
-![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge\&logo=python\&logoColor=white)
+![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Industrial%20Prototype-success?style=for-the-badge)
 ![Industry](https://img.shields.io/badge/Industria-Minería%204.0-orange?style=for-the-badge)
-![AI Model](https://img.shields.io/badge/AI-Gaussian%20Process%20%2B%20Gradient%20Boosting-purple?style=for-the-badge)
+![License](https://img.shields.io/badge/License-AGPL--3.0-red?style=for-the-badge)
 
 **Pipeline ETL industrial y Soft-Sensor predictivo para control de calidad en tiempo real**
 
@@ -15,36 +15,38 @@
 
 ---
 
-## 📋 Resumen Ejecutivo
+## 📋 Resumen
 
-Este proyecto implementa una solución de **Minería 4.0** orientada a la optimización de plantas de procesamiento de minerales. El sistema reemplaza análisis de laboratorio lentos y costosos mediante un **Soft-Sensor basado en Inteligencia Artificial**, capaz de predecir variables críticas de calidad (por ejemplo, **% de Sílice** o **Recuperación Metalúrgica**) en tiempo casi real a partir de datos de sensores de planta.
+Sistema de **Minería 4.0** para optimización de plantas de procesamiento de minerales. Reemplaza análisis de laboratorio lentos y costosos mediante un **Soft-Sensor basado en IA**, capaz de predecir variables críticas de calidad en tiempo casi real a partir de datos de sensores de planta.
 
-La arquitectura está diseñada con un enfoque **industrial y productivo**, combinando:
+La arquitectura combina:
 
-* **Procesos Gaussianos (GP)** para modelar precisión e incertidumbre.
-* **Gradient Boosting** como respaldo robusto frente a ruido, no estacionariedad y condiciones operativas cambiantes.
+* **Procesos Gaussianos (GP)** para modelar precisión e incertidumbre calibrada.
+* **Gradient Boosting** como fallback automático frente a ruido o no-estacionariedad.
+* **Pipeline ETL** con validación física universal por pattern matching.
+* **Dashboard HMI** con inferencia reactiva y motor What-If.
 
-El sistema está preparado para integrarse con historiadores industriales (por ejemplo, SCADA o PI System) y extenderse hacia estrategias de **Advanced Process Control (APC)**.
-
----
-
-## 🎯 Objetivo del Sistema
-
-Predecir variables críticas del proceso de flotación (**target**) a partir de variables operativas (**features**) con métricas de nivel industrial:
-
-* **R² ≥ 0.95**
-* **MAPE < 2%**
-
-habilitando soporte a la toma de decisiones operativas, control avanzado de procesos y reducción de dependencia de laboratorio.
+Preparado para integrarse con historiadores industriales (SCADA, PI System) y estrategias de Advanced Process Control (APC).
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+## 🎯 Capacidades del Sistema
 
-El sistema se estructura en dos pipelines principales:
+* Predicción de variables críticas del proceso (recovery, grade, silica, etc.)
+* Cuantificación de incertidumbre con intervalos de confianza calibrados
+* Diagnóstico automático de autocorrelación temporal
+* Detección y eliminación de data leakage por configuración declarativa (JSON)
+* Validación física universal: detecta categoría de cada sensor por nombre
+* Generación automática de reportes de auditoría (PDF)
+* Motor What-If para simulación de escenarios operativos
 
-* **Entrenamiento (Batch / Offline)**
-* **Inferencia (Simulación de Tiempo Real)**
+**Métricas objetivo:**
+* R² ≥ 0.95
+* MAPE < 2%
+
+---
+
+## 🏗️ Arquitectura
 
 ```mermaid
 graph TD
@@ -62,8 +64,7 @@ graph TD
         Adapter --> Validator[Validación Física]:::process
         Validator --> Preproc[Preprocesamiento Robusto]:::process
         Preproc --> FeatureEng[Feature Engineering Temporal]:::process
-
-        FeatureEng --> Optuna[Optimización de Hiperparámetros]:::ai
+        FeatureEng --> Optuna[Optimización Bayesiana]:::ai
         Optuna --> Decision{GP Estable?}:::ai
         Decision -- Sí --> TrainGP[Gaussian Process]:::ai
         Decision -- No --> TrainGBR[Gradient Boosting]:::ai
@@ -81,122 +82,115 @@ graph TD
     end
 ```
 
-El **modelo campeón** se selecciona automáticamente según métricas de validación y se registra junto con sus transformaciones, parámetros y metadata operativa.
-
 ---
 
-## ✨ Características Clave de Ingeniería
+## ✨ Características de Ingeniería
 
-* **Ingesta Universal de Datos**
-  Lectura automática de archivos CSV industriales, detección de separadores y timestamps, con filtrado por expresiones regulares para evitar *data leakage*.
+* **Ingesta Universal**: Auto-detección de separador, encoding, formatos de fecha. Filtrado de columnas por patrones regex declarativos.
 
-* **Modelado Híbrido Inteligente**
+* **Schema de Validación Física v2.0**: Pattern matching universal que detecta categoría (temperatura, porcentaje, flujo, pH, nivel, etc.) por nombre de columna. Soporta gold_recovery, AI4I2020, y cualquier dataset con nombres descriptivos.
 
-  * Prioriza **Gaussian Processes** con kernels físicamente restringidos.
-  * Activa **fallback automático a Gradient Boosting** si el GP no alcanza desempeño mínimo (R² < 0.6).
+* **Modelado Híbrido**: GP con kernels Matérn optimizados vía Optuna. Fallback automático a GradientBoosting si R² < 0.6.
 
-* **Conciencia Temporal Estricta**
-  Respeto explícito de la flecha del tiempo (sin `shuffle`), generación de *lags* y ventanas móviles para capturar la dinámica del proceso.
+* **Conciencia Temporal**: Sin shuffle, lags configurables, ventanas móviles, diagnóstico de autocorrelación con auto-ajuste de subsample.
 
-* **Motor de Inferencia Orientado a Producción**
-  Carga automática del último modelo válido, validación de esquema de entrada y generación de predicción junto a su incertidumbre.
-
----
-
-## 🏆 Resultados de Desempeño
-
-Evaluado con datasets reales de procesos de flotación:
-
-| Métrica  | Resultado (Gradient Boosting) | Interpretación Operacional                    |
-| -------- | ----------------------------- | --------------------------------------------- |
-| **R²**   | **0.9707**                    | Explica el 97% de la variabilidad del proceso |
-| **MAPE** | **1.43%**                     | Error comparable a análisis de laboratorio    |
-| **RMSE** | **1.74**                      | Baja dispersión del error                     |
-
-Los gráficos de ajuste, residuos y validación se generan automáticamente en la carpeta `results/` tras cada entrenamiento.
+* **Dashboard HMI**: Streamlit con refresco por fragmentos, motor What-If para perturbación de variables, y visualización Plotly.
 
 ---
 
 ## 🚀 Instalación
 
-### 1. Clonar el repositorio
-
 ```bash
 git clone https://github.com/CienciaEstelar/proyecto_minero_4.0.git
 cd proyecto_minero_4.0
-```
-
-### 2. Crear entorno virtual
-
-```bash
 python -m venv .venv
 source .venv/bin/activate
-```
-
-### 3. Instalar dependencias
-
-```bash
 pip install -r requirements.txt
 ```
 
 ---
 
-## ⚙️ Configuración de Datos
+## ⚙️ Configuración
 
-1. Coloca tu archivo CSV de sensores en la carpeta `data/` (ignorados por git).
-2. Edita `config/dataset_config.json` para definir:
-
-   * Archivo de entrada
-   * Columna objetivo (target)
-3. (Opcional) Copia `.env.example` a `.env` para parámetros avanzados.
+1. Coloca tu archivo CSV de sensores en `data/`.
+2. Copia `config/dataset_config.example.json` a `config/dataset_config.json`.
+3. Edita el JSON para definir tu dataset, target, y reglas de filtrado.
+4. (Opcional) Copia `.env.example` a `.env` para parámetros avanzados.
 
 ---
 
-## 🎮 Uso del Sistema
+## 🎮 Uso
+
+### Escaneo de estructura
+```bash
+python -m tools.scan_schema
+```
+
+### Pipeline ETL
+```bash
+python -m core.pipeline
+```
 
 ### Entrenamiento
-
 ```bash
 python train_universal.py
 ```
 
-El sistema ejecuta el pipeline ETL completo, selecciona el modelo campeón y lo registra en `models/`.
-
 ### Inferencia
-
 ```bash
 python predict_universal.py
 ```
 
-Simula datos en tiempo real y presenta una comparación entre valor real y predicción del modelo.
+### Dashboard
+```bash
+streamlit run dashboard.py
+```
 
 ---
 
-## 📂 Estructura del Proyecto
+## 📂 Estructura
 
 ```text
 proyecto_minero_4.0/
-├── config/                  # Configuración del sistema
-├── core/                    # Núcleo lógico del sistema
-│   ├── adapters/            # Ingesta de datos
-│   ├── models/              # Modelos de IA
-│   ├── validation/          # Reglas físicas y de negocio
-│   └── inference_engine.py  # Motor de inferencia
-├── data/                    # Datos de entrada (gitignore)
-├── models/                  # Modelos entrenados
-├── results/                 # Reportes y gráficos
-├── logs/                    # Trazabilidad
+├── config/                  # Configuración centralizada
+│   ├── settings.py          # Single Source of Truth
+│   └── dataset_config.json  # Reglas de ingesta (personalizar)
+├── core/                    # Núcleo del sistema
+│   ├── adapters/            # Ingesta universal de datos
+│   ├── models/              # GP + GradientBoosting
+│   ├── validation/          # Schema físico + Validador
+│   ├── preprocessor.py      # Limpieza estadística
+│   ├── pipeline.py          # Orquestador ETL
+│   ├── inference_engine.py  # Motor de producción
+│   └── report_generator.py  # Auditoría PDF
+├── tools/                   # Utilidades de diagnóstico
+├── tests/                   # Tests unitarios + integración
+├── dashboard.py             # HMI Streamlit
 ├── train_universal.py       # Orquestador de entrenamiento
-├── predict_universal.py     # Orquestador de inferencia
-├── requirements.txt
-└── README.md
+├── predict_universal.py     # Simulador de inferencia
+└── requirements.txt
 ```
+
+---
+
+## 🧪 Testing
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
+---
+
+## 📄 Licencia
+
+**AGPL-3.0** — Puedes ver, estudiar y modificar el código. Si lo usas en un servicio o producto, debes publicar tus modificaciones bajo la misma licencia. Para uso comercial privado, contactar al autor.
 
 ---
 
 <div align="center">
 
 **Desarrollado para Minería 4.0**
-Juan Galaz — Arquitectura Minera
+Juan Galaz — Ingeniería de Ejecución en Minas (USACH)
 
 </div>
