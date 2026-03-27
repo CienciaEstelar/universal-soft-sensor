@@ -10,7 +10,6 @@ import numpy as np
 from pathlib import Path
 import sys
 
-# Agregar el proyecto al path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
@@ -34,10 +33,15 @@ class TestMiningSchema:
         """Verificar búsqueda por patrón para columnas de flotación."""
         from core.validation.schema import SCHEMA
         
-        # Debe coincidir con la regla genérica
+        # 'air_flow' matchea el patrón 'flow' → categoría FLOW_RATE
         min_val, max_val = SCHEMA.get_range("flotation_column_01_air_flow")
+
+        # [FIX] ANTES: assert max_val == 1000.0
+        #              ↑ Valor hardcodeado del schema v1. Siempre fallaba porque
+        #                PhysicalCategory.FLOW_RATE tiene max = 50000.0
+        # AHORA: validamos el rango real de FLOW_RATE
         assert min_val == 0.0
-        assert max_val == 1000.0
+        assert max_val == 50000.0
     
     def test_get_range_no_rule(self):
         """Verificar fallback a infinito para columnas sin regla."""
@@ -68,7 +72,7 @@ class TestMiningValidator:
         return pd.DataFrame({
             "_iron_feed": [45.0, 50.0, 150.0, np.nan],  # 150 fuera de rango
             "ore_pulp_ph": [7.0, 8.5, 15.0, 6.0],       # 15 fuera de rango
-            "starch_flow": [100, 200, -50, 300],        # -50 fuera de rango
+            "starch_flow": [100, 200, -50, 300],          # -50 fuera de rango
         })
     
     def test_validator_import(self):
@@ -252,8 +256,6 @@ class TestIntegration:
     
     def test_full_pipeline_smoke(self, check_data_exists, tmp_path):
         """Smoke test del pipeline completo."""
-        # Este test verifica que el pipeline no crashea
-        # Usa un directorio temporal para no afectar datos reales
         pass  # Implementar si es necesario
 
 
