@@ -22,6 +22,15 @@ rich>=13.0.0
 # Configuración
 python-dotenv>=1.0.0
 
+# Dashboard HMI
+# [FIX] Dependencias faltantes que causaban ModuleNotFoundError en deploy limpio
+streamlit>=1.30.0
+plotly>=5.18.0
+
+# Generación de reportes PDF
+# [FIX] fpdf2 no estaba declarado pero se importaba en core/report_generator.py
+fpdf2>=2.7.0
+
 # =============================================================================
 # Dependencias opcionales para desarrollo
 # =============================================================================
