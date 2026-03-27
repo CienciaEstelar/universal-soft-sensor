@@ -43,3 +43,26 @@ logs/
 # =========================
 .vscode/
 .idea/
+
+# =========================
+# [FIX] Packaging artifacts
+# Antes faltaban estas entradas — egg-info se subía al repo
+# exponiendo metadata sensible (email, versiones, métricas)
+# =========================
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# =========================
+# [FIX] pytest cache
+# =========================
+.pytest_cache/
+.coverage
+htmlcov/
+
+# =========================
+# [FIX] mypy cache
+# =========================
+.mypy_cache/
