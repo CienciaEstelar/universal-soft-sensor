@@ -190,8 +190,13 @@ class ProjectConfig:
     #   Opción 2: Definir variable de entorno SUBSAMPLE_STEP=20
     #
     # ═══════════════════════════════════════════════════════════════════════
+    # Default = 1 (sin subsampling). En ML supervisado para series temporales,
+    # diezmar para "descorrelacionar" es un anti-patrón heredado de inferencia
+    # estadística clásica: borra señal y desalinea train vs inference (que no
+    # subsamplea, ver core/inference_engine.py). Cambiar solo si se necesita
+    # reducir el costo cuadrático del GP en datasets muy grandes.
     DEFAULT_SUBSAMPLE_STEP: int = field(
-        default_factory=lambda: int(os.getenv("SUBSAMPLE_STEP", "10"))
+        default_factory=lambda: int(os.getenv("SUBSAMPLE_STEP", "1"))
     )
     # ═══════════════════════════════════════════════════════════════════════
     
