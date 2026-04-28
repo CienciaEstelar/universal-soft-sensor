@@ -66,3 +66,10 @@ htmlcov/
 # [FIX] mypy cache
 # =========================
 .mypy_cache/
+
+# =========================
+# Build artifacts (pip install -e)
+# =========================
+*.egg-info/
+build/
+dist/
