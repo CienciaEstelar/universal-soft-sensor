@@ -182,8 +182,7 @@ class MiningDataAdapter(UniversalAdapter):
         """
         # Usamos MiningCSVAdapter como backend de ingesta raw
         # y devolvemos un objeto que expone la interfaz unificada
-        instance = _FileModeAdapter(filepath, encoding)
-        return instance  # type: ignore[return-value]
+        return _FileModeAdapter(filepath, encoding)
 
     # ═══════════════════════════════════════════════════════════════════════
     # MÉTODOS PÚBLICOS — Interfaz unificada
@@ -283,15 +282,21 @@ class MiningDataAdapter(UniversalAdapter):
 # CLASE INTERNA: Modo archivo directo (from_file)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class _FileModeAdapter:
+class _FileModeAdapter(MiningDataAdapter):
     """
     Adaptador en modo archivo directo.
 
-    Clase interna usada por MiningDataAdapter.from_file().
-    No instanciar directamente — usar el factory method.
+    Subclase de MiningDataAdapter usada por el factory `from_file`. Comparte
+    la interfaz pública (load_data/load_raw/stream/get_target_column/get_stats)
+    para que `isinstance(x, MiningDataAdapter)` sea verdadero y los type hints
+    no requieran `# type: ignore`.
+
+    No usa el __init__ de la base porque no parte de un config JSON; en su
+    lugar construye los atributos manualmente.
     """
 
     def __init__(self, filepath: str, encoding: str = "utf-8"):
+        # Bypass intencional de super().__init__: no hay config JSON que cargar.
         self._csv_adapter = MiningCSVAdapter(filepath, encoding)
         self.data_path = Path(filepath)
         self.config = {
@@ -322,9 +327,10 @@ class _FileModeAdapter:
     def stream(
         self,
         chunk_size: int = 25000,
-        apply_filtering: bool = False
+        apply_filtering: bool = False,
     ) -> Generator[pd.DataFrame, None, None]:
-        """Streaming directo del CSV."""
+        """Streaming directo del CSV. `apply_filtering` se ignora en este modo
+        porque no hay reglas de feature_engineering cargadas desde config."""
         return self._csv_adapter.stream(chunk_size=chunk_size)
 
     def get_target_column(self) -> Optional[str]:

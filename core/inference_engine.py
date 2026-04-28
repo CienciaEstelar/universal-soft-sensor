@@ -382,9 +382,12 @@ class MiningInference:
                 logger.warning("⚠️ Modelo sin feature_importances_. Usando uniforme.")
                 importances = np.ones(len(feature_names))
             
-            # Normalizar a suma = 1
+            # Normalizar a suma = 1 (con guard anti-NaN si todas son cero)
             importances = np.array(importances)
-            importances = importances / importances.sum()
+            total = importances.sum()
+            if total == 0:
+                return dict.fromkeys(feature_names[:top_n], 0.0)
+            importances = importances / total
             
             # Crear diccionario ordenado
             importance_dict = dict(zip(feature_names, importances))

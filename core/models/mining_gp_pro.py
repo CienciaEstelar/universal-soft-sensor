@@ -421,11 +421,12 @@ class MiningGP:
                 df[f'{y_col}_lag_{lag}'] = y.shift(lag)
         
         # --- Features de Diferencia y Tendencia ---
+        # Causales: solo usan información en t-1 o anterior, nunca y[t].
         if self.add_diff_features:
-            df[f'{y_col}_diff_1'] = y.diff(1)           # Cambio instantáneo
-            df[f'{y_col}_diff_5'] = y.diff(5)           # Cambio en 5 periodos
-            df[f'{y_col}_rolling_mean_10'] = y.rolling(10, min_periods=1).mean()
-            df[f'{y_col}_rolling_std_10'] = y.rolling(10, min_periods=1).std()
+            df[f'{y_col}_diff_1'] = y.shift(1) - y.shift(2)
+            df[f'{y_col}_diff_5'] = y.shift(1) - y.shift(6)
+            df[f'{y_col}_rolling_mean_10'] = y.shift(1).rolling(10, min_periods=1).mean()
+            df[f'{y_col}_rolling_std_10'] = y.shift(1).rolling(10, min_periods=1).std()
         
         return df
     
@@ -503,19 +504,31 @@ class MiningGP:
         diag_table.add_row("Subsample recomendado:", f"cada {self.data_diagnosis['recommended_subsample']}")
         self.console.print(diag_table)
         
-        # Auto-ajustar subsample si la autocorrelación es crítica
+        # Aviso (NO destructivo) si la autocorrelación es crítica.
+        # En ML supervisado para series temporales, alta autocorrelación NO
+        # justifica diezmar: el modelo aprende pares (X, y), no requiere
+        # independencia. Subsamplear elimina dinámica fina y desalinea train
+        # vs inference (esta última no subsamplea).  Por eso solo emitimos
+        # un warning y respetamos el valor del usuario.
         if self.data_diagnosis["autocorr_1"] > 0.98:
             recommended = self.data_diagnosis["recommended_subsample"]
             if self.subsample_step < recommended:
                 self.console.print(
-                    f"[yellow]   ⚠️  Auto-ajustando subsample: "
-                    f"{self.subsample_step} → {recommended}[/yellow]"
+                    f"[yellow]   ⚠️  Autocorrelación lag-1 = "
+                    f"{self.data_diagnosis['autocorr_1']:.4f} (CRÍTICA). "
+                    f"Subsample del usuario = {self.subsample_step}. "
+                    f"Si la dinámica del proceso es muy lenta, evaluar "
+                    f"manualmente subsample ≈ {recommended}.[/yellow]"
                 )
-                self.subsample_step = recommended
-        
+
         # ═══════════════════════════════════════════════════════════════════
         # SUBSAMPLEO TEMPORAL
         # ═══════════════════════════════════════════════════════════════════
+        # Default = 1 (sin subsampling). En ML supervisado, subsamplear una
+        # serie para "descorrelacionar" es un anti-patrón heredado de la
+        # inferencia estadística clásica: aquí solo destruye señal y crea
+        # desalineación con la inferencia (que no subsamplea). Mantener > 1
+        # solo si se quiere reducir el costo cuadrático del GP.
         if self.subsample_step > 1:
             df = df.iloc[::self.subsample_step]
             self.console.print(
@@ -558,28 +571,26 @@ class MiningGP:
         # Guardar nombres de features para inferencia
         self.feature_names = X_df.columns.tolist()
         
-        # Convertir a numpy arrays
+        # Convertir a numpy arrays SIN escalar.
+        # El escalado se hace en train_from_file() después del split para evitar
+        # leakage de la mediana/IQR del test set hacia el train.
         X = X_df.values
         y = y_series.values.reshape(-1, 1)
-        
-        # Escalar (RobustScaler es resistente a outliers)
-        X_scaled = self.scaler_X.fit_transform(X)
-        y_scaled = self.scaler_y.fit_transform(y)
-        
+
         # Mostrar estadísticas finales
         new_autocorr = y_series.autocorr(lag=1) if len(y_series) > 1 else 0
         self.console.print(
             f"\n[green]✅ Datos listos: {X.shape[0]:,} filas, {X.shape[1]} features[/green]"
         )
         self.console.print(f"[dim]   Nueva autocorr lag-1: {new_autocorr:.4f}[/dim]")
-        
+
         if new_autocorr > 0.9:
             self.console.print(
                 f"[yellow]   ⚠️  Autocorrelación aún alta. "
                 f"Considerar aumentar subsample.[/yellow]"
             )
-        
-        return X_scaled, y_scaled, df.index
+
+        return X, y, df.index
     
     # ═══════════════════════════════════════════════════════════════════════
     # MÉTODOS DE ENTRENAMIENTO
@@ -638,8 +649,12 @@ class MiningGP:
             X_opt = X_train[::step][:max_samples]
             y_opt = y_train[::step][:max_samples]
             
-            # Cross-validation temporal (respeta orden cronológico)
-            tscv = TimeSeriesSplit(n_splits=3)
+            # Cross-validation temporal (respeta orden cronológico).
+            # TimeSeriesSplit requiere n_samples >= n_splits + 1; en datasets
+            # post-FE muy reducidos (ej. tests sintéticos) puede fallar, así
+            # que ajustamos n_splits dinámicamente.
+            n_splits = min(3, max(2, len(X_opt) - 1))
+            tscv = TimeSeriesSplit(n_splits=n_splits)
             scores = []
             
             for train_idx, test_idx in tscv.split(X_opt):
@@ -655,11 +670,28 @@ class MiningGP:
             
             return np.mean(scores)
         
-        # Ejecutar optimización
+        # Ejecutar optimización con sampler seedeado para reproducibilidad
         optuna.logging.set_verbosity(optuna.logging.WARNING)
-        study = optuna.create_study(direction="maximize")
+        study = optuna.create_study(
+            direction="maximize",
+            sampler=optuna.samplers.TPESampler(seed=self.random_state),
+        )
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
-        
+
+        # Si todos los trials fallaron (datasets degenerados, NaN en CV, etc.)
+        # study.best_params lanza ValueError. Devolvemos señal al caller para
+        # que caiga al fallback en lugar de propagar la excepción.
+        completed = [
+            t for t in study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE
+        ]
+        if not completed:
+            self.console.print(
+                "[yellow]   ⚠️  Todos los trials de Optuna fallaron. "
+                "Señalando fallback al caller.[/yellow]"
+            )
+            return None, {}, -1.0
+
         best_params = study.best_params
         best_score = study.best_value
         
@@ -1052,21 +1084,26 @@ class MiningGP:
         Returns:
             ModelMetrics con los resultados de evaluación
         """
-        # Paso 1: Cargar y preparar datos
+        # Paso 1: Cargar y preparar datos (X, y SIN escalar)
         X, y, dates = self.load_data(filepath)
-        
+
         # Paso 2: Split temporal (respeta orden cronológico)
         test_idx = int(len(X) * (1 - test_size))
         X_train, X_test = X[:test_idx], X[test_idx:]
         y_train, y_test = y[:test_idx], y[test_idx:]
         dates_test = dates[test_idx:]
-        
-        # Paso 3: Entrenar
-        self.optimize_and_train(X_train, y_train, n_trials=n_trials)
-        
-        # Paso 4: Evaluar en test set
-        y_test_real = self.scaler_y.inverse_transform(y_test).ravel()
-        y_pred, y_std = self.predict(X_test)
+
+        # Paso 3: Escalar — fit SOLO con train, transform en test (anti-leakage).
+        X_train_s = self.scaler_X.fit_transform(X_train)
+        X_test_s = self.scaler_X.transform(X_test)
+        y_train_s = self.scaler_y.fit_transform(y_train)
+
+        # Paso 4: Entrenar (en escala escalada)
+        self.optimize_and_train(X_train_s, y_train_s, n_trials=n_trials)
+
+        # Paso 5: Evaluar en test set (y_test ya está en escala original)
+        y_test_real = y_test.ravel()
+        y_pred, y_std = self.predict(X_test_s)
         metrics = self.evaluate(y_test_real, y_pred)
         
         # Mostrar resultados
