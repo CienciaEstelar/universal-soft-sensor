@@ -40,9 +40,9 @@ HISTORIAL DE CAMBIOS:
 USO:
 ═══════════════════════════════════════════════════════════════════════════════
 
-    from core.validation.validator import MiningValidator
+    from core.validation.validator import PhysicalValidator
     
-    validator = MiningValidator()
+    validator = PhysicalValidator()
     
     # Filtrar datos inválidos
     df_limpio = validator.validate(df_sucio)
@@ -132,10 +132,10 @@ class ValidationStats:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLASE PRINCIPAL: MiningValidator
+# CLASE PRINCIPAL: PhysicalValidator
 # ═══════════════════════════════════════════════════════════════════════════
 
-class MiningValidator:
+class PhysicalValidator:
     """
     Validador de datos de proceso industrial.
     
@@ -149,7 +149,7 @@ class MiningValidator:
     
     Attributes
     ----------
-    schema : MiningSchema
+    schema : PhysicalSchema
         Esquema de validación con reglas por categoría.
     log_threshold : int
         Umbral de filas inválidas para generar WARNING (por columna).
@@ -158,7 +158,7 @@ class MiningValidator:
         
     Examples
     --------
-    >>> validator = MiningValidator()
+    >>> validator = PhysicalValidator()
     >>> df_clean = validator.validate(df_raw)
     >>> print(validator.last_stats)
     ValidationStats(entrada=10000, salida=9856, rechazadas=144 (1.44%))
@@ -170,7 +170,7 @@ class MiningValidator:
         
         Parameters
         ----------
-        schema : MiningSchema, optional
+        schema : PhysicalSchema, optional
             Esquema de validación. Si es None, usa el global (SCHEMA).
         log_threshold : int, default=100
             Umbral de filas inválidas para generar WARNING.
@@ -433,7 +433,7 @@ class MiningValidator:
 # EXPORTS
 # ═══════════════════════════════════════════════════════════════════════════
 
-__all__ = ["MiningValidator", "ValidationStats"]
+__all__ = ["PhysicalValidator", "ValidationStats"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -447,7 +447,7 @@ if __name__ == "__main__":
     )
     
     print("=" * 70)
-    print("🔍 Test de MiningValidator v2.0 - Pattern Matching Universal")
+    print("🔍 Test de PhysicalValidator v2.0 - Pattern Matching Universal")
     print("=" * 70)
     
     # ═══════════════════════════════════════════════════════════════════════
@@ -466,7 +466,7 @@ if __name__ == "__main__":
     print("Datos de entrada:")
     print(df_gold)
     
-    validator = MiningValidator()
+    validator = PhysicalValidator()
     df_clean = validator.validate(df_gold)
     
     print("\nDatos válidos:")

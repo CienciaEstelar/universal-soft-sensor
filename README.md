@@ -1,15 +1,15 @@
-# ⚒️ Proyecto Minero 4.0
+# 🛰️ Universal Soft-Sensor
 
-## Soft-Sensor Industrial con Gaussian Processes
+## Pipeline ETL + Soft-Sensor industrial con Gaussian Processes — agnóstico al dominio
 
 <div align="center">
 
 ![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Industrial%20Prototype-success?style=for-the-badge)
-![Industry](https://img.shields.io/badge/Industria-Minería%204.0-orange?style=for-the-badge)
+![Domain](https://img.shields.io/badge/Dominio-Universal-orange?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-red?style=for-the-badge)
 
-**Pipeline ETL industrial y Soft-Sensor predictivo para control de calidad en tiempo real**
+**Soft-Sensor predictivo con incertidumbre calibrada para cualquier proceso industrial con sensores**
 
 </div>
 
@@ -17,7 +17,15 @@
 
 ## 📋 Resumen
 
-Sistema de **Minería 4.0** para optimización de plantas de procesamiento de minerales. Reemplaza análisis de laboratorio lentos y costosos mediante un **Soft-Sensor basado en IA**, capaz de predecir variables críticas de calidad en tiempo casi real a partir de datos de sensores de planta.
+Pipeline **agnóstico al dominio** que reemplaza mediciones lentas o costosas (análisis de laboratorio, inspecciones) mediante un **Soft-Sensor basado en IA**: predice variables críticas del proceso en tiempo casi real a partir de los datos de sensores existentes, con intervalos de confianza calibrados.
+
+**No está atado a ninguna industria.** El schema de validación física detecta la categoría de cada sensor por el nombre de la columna (regex declarativo), así que el mismo pipeline funciona con cualquier dataset de sensores cambiando solo la configuración (`config/dataset_config.json`):
+
+| Dominio probado | Dataset | Qué predice |
+|---|---|---|
+| ⚒️ Flotación minera (caso de origen) | Quality Prediction in a Mining Process (Kaggle) | % sílica / % hierro en concentrado |
+| ⚙️ Mantenimiento de máquinas rotativas | AI4I 2020 (UCI) | Fallo de máquina (torque, rpm, tool wear, TWF/HDF/PWF/OSF) |
+| 🧩 Cualquier otro | Tu CSV con nombres de columna descriptivos | Lo que declares como `target_column` |
 
 La arquitectura combina:
 
@@ -27,6 +35,8 @@ La arquitectura combina:
 * **Dashboard HMI** con inferencia reactiva y motor What-If.
 
 Preparado para integrarse con historiadores industriales (SCADA, PI System) y estrategias de Advanced Process Control (APC).
+
+> 📛 **Historia del nombre:** este proyecto nació como "Proyecto Minero 4.0" (su primer caso de uso fue flotación minera). Se renombró a **Universal Soft-Sensor** cuando el mismo pipeline, sin cambios de código, demostró funcionar en mantenimiento predictivo de máquinas rotativas. Los defaults de flotación se conservan por retrocompatibilidad.
 
 ---
 
@@ -101,8 +111,8 @@ graph TD
 ## 🚀 Instalación
 
 ```bash
-git clone https://github.com/CienciaEstelar/proyecto_minero_4.0.git
-cd proyecto_minero_4.0
+git clone https://github.com/CienciaEstelar/universal-soft-sensor.git   # (repo GitHub: renombrar desde proyecto_minero_4.0)
+cd universal-soft-sensor
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -151,7 +161,7 @@ streamlit run dashboard.py
 ## 📂 Estructura
 
 ```text
-proyecto_minero_4.0/
+universal-soft-sensor/
 ├── config/                  # Configuración centralizada
 │   ├── settings.py          # Single Source of Truth
 │   └── dataset_config.json  # Reglas de ingesta (personalizar)
@@ -190,7 +200,7 @@ pytest tests/ -v
 
 <div align="center">
 
-**Desarrollado para Minería 4.0**
+**Soft-sensor universal — nacido en Minería 4.0, probado en mantenimiento predictivo**
 Juan Galaz — Ingeniería de Ejecución en Minas (USACH)
 
 </div>

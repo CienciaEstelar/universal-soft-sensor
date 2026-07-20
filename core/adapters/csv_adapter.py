@@ -1,5 +1,5 @@
 """
-Módulo: core/adapters/mining_csv_adapter.py
+Módulo: core/adapters/csv_adapter.py
 Nivel: UNIVERSAL / BLINDADO
 Descripción: Adaptador agnóstico para ingesta de datos CSV.
              
@@ -11,9 +11,9 @@ Características:
     - Streaming por chunks para manejo eficiente de memoria
     
 Uso:
-    from core.adapters import MiningCSVAdapter
+    from core.adapters import CSVAdapter
     
-    adapter = MiningCSVAdapter("/path/to/data.csv")
+    adapter = CSVAdapter("/path/to/data.csv")
     for chunk in adapter.stream(chunk_size=25000):
         process(chunk)
 
@@ -36,7 +36,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class MiningCSVAdapter:
+class CSVAdapter:
     """
     Adaptador universal para archivos CSV de datos mineros.
     
@@ -334,7 +334,7 @@ class MiningCSVAdapter:
 # =============================================================================
 # __init__.py helper
 # =============================================================================
-__all__ = ["MiningCSVAdapter"]
+__all__ = ["CSVAdapter"]
 
 
 # =============================================================================
@@ -360,7 +360,7 @@ if __name__ == "__main__":
     print("=" * 60)
     
     try:
-        adapter = MiningCSVAdapter(test_path)
+        adapter = CSVAdapter(test_path)
         
         # Leer primer chunk
         gen = adapter.stream()

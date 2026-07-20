@@ -15,7 +15,7 @@ HISTORIAL DE CAMBIOS:
     [v2.0.0 - Enero 2026] COMPATIBILIDAD CON MÓDULOS v2.0
     -----------------------------------------------------
     - Tests actualizados para schema v2.0 (pattern matching)
-    - Tests para MiningDataAdapter (reemplaza MiningCSVAdapter + UniversalAdapter)
+    - Tests para DataAdapter (reemplaza CSVAdapter + UniversalAdapter)
     - Tests para inference_engine v1.2 (predict_series, get_feature_importance)
     - Eliminados tests obsoletos de adapters viejos
 
@@ -38,7 +38,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # =============================================================================
 
 @pytest.mark.schema
-class TestMiningSchema:
+class TestPhysicalSchema:
     """Tests para el esquema de validación universal v2.0."""
     
     def test_schema_import(self):
@@ -165,13 +165,13 @@ class TestMiningSchema:
 # =============================================================================
 
 @pytest.mark.validation
-class TestMiningValidator:
+class TestPhysicalValidator:
     """Tests para el validador de datos v2.0."""
     
     def test_validator_import(self):
         """Verificar que el validador se importa correctamente."""
-        from core.validation.validator import MiningValidator, ValidationStats
-        assert MiningValidator is not None
+        from core.validation.validator import PhysicalValidator, ValidationStats
+        assert PhysicalValidator is not None
         assert ValidationStats is not None
     
     def test_validate_filters_invalid_rows(self, synthetic_data_with_invalids, fresh_validator):
@@ -242,7 +242,7 @@ class TestMiningValidator:
 # TESTS: PREPROCESSOR
 # =============================================================================
 
-class TestMiningPreprocessor:
+class TestPreprocessor:
     """Tests para el preprocesador."""
     
     @pytest.fixture
@@ -255,42 +255,42 @@ class TestMiningPreprocessor:
     
     def test_preprocessor_import(self):
         """Verificar que el preprocesador se importa."""
-        from core.preprocessor import MiningPreprocessor
-        assert MiningPreprocessor is not None
+        from core.preprocessor import Preprocessor
+        assert Preprocessor is not None
     
     def test_replaces_infinites(self, sample_df):
         """Verificar que infinitos se reemplazan."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
-        preprocessor = MiningPreprocessor()
+        preprocessor = Preprocessor()
         df_clean = preprocessor.clean_stream(sample_df)
         
         assert not np.isinf(df_clean.values).any()
     
     def test_imputes_nulls_ffill(self, sample_df):
         """Verificar imputación forward fill."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
-        preprocessor = MiningPreprocessor(estrategia_nulos="ffill")
+        preprocessor = Preprocessor(estrategia_nulos="ffill")
         df_clean = preprocessor.clean_stream(sample_df)
         
         assert not df_clean.isna().any().any()
     
     def test_imputes_nulls_interpolate(self, sample_df):
         """Verificar imputación por interpolación."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
-        preprocessor = MiningPreprocessor(estrategia_nulos="interpolate")
+        preprocessor = Preprocessor(estrategia_nulos="interpolate")
         df_clean = preprocessor.clean_stream(sample_df)
         
         assert not df_clean.isna().any().any()
     
     def test_invalid_strategy_raises(self):
         """Verificar que estrategia inválida lanza error."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
         with pytest.raises(ValueError):
-            MiningPreprocessor(estrategia_nulos="invalid_strategy")
+            Preprocessor(estrategia_nulos="invalid_strategy")
 
 
 # =============================================================================
@@ -330,15 +330,15 @@ class TestInferenceEngine:
     
     def test_inference_import(self):
         """Verificar imports."""
-        from core.inference_engine import MiningInference
-        assert MiningInference is not None
+        from core.inference_engine import InferenceEngine
+        assert InferenceEngine is not None
     
     def test_calculate_confidence(self):
         """Verificar cálculo de confianza."""
-        from core.inference_engine import MiningInference
+        from core.inference_engine import InferenceEngine
         
         # Crear instancia sin cargar modelo
-        engine = MiningInference.__new__(MiningInference)
+        engine = InferenceEngine.__new__(InferenceEngine)
         
         # std = 0 (GBR) → confianza por defecto
         conf = engine.calculate_confidence(0.0, 85.0)
@@ -354,9 +354,9 @@ class TestInferenceEngine:
     
     def test_get_model_info_no_model(self):
         """Verificar get_model_info sin modelo cargado."""
-        from core.inference_engine import MiningInference
+        from core.inference_engine import InferenceEngine
         
-        engine = MiningInference.__new__(MiningInference)
+        engine = InferenceEngine.__new__(InferenceEngine)
         engine.loaded = False
         
         info = engine.get_model_info()
@@ -387,11 +387,11 @@ class TestIntegration:
         """
         Smoke test del pipeline: datos → validación → entrenamiento.
         """
-        from core.validation.validator import MiningValidator
-        from core.models.mining_gp_pro import MiningGP
+        from core.validation.validator import PhysicalValidator
+        from core.models.gp_model import SoftSensorGP
         
         # 1. Validar
-        validator = MiningValidator()
+        validator = PhysicalValidator()
         df_valid = validator.validate(synthetic_data)
         
         assert len(df_valid) > 100  # Suficientes datos
@@ -401,7 +401,7 @@ class TestIntegration:
         df_valid.to_csv(csv_path)
         
         # 3. Entrenar (rápido)
-        model = MiningGP(
+        model = SoftSensorGP(
             target_col="rougher.output.recovery",
             subsample_step=20,
         )

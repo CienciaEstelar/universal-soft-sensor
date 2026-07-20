@@ -19,7 +19,7 @@ HISTORIAL DE CAMBIOS:
     -----------------------------------------------------
     - Fixtures actualizados para schema universal (pattern matching)
     - Nuevos fixtures para gold_recovery y ai4i2020 datasets
-    - Fixture para MiningDataAdapter
+    - Fixture para DataAdapter
     - Marcadores adicionales para tests de validación
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -173,7 +173,7 @@ def temp_csv(tmp_path, synthetic_data):
 @pytest.fixture
 def temp_config_json(tmp_path, temp_csv):
     """
-    Crea un archivo de configuración JSON temporal para MiningDataAdapter.
+    Crea un archivo de configuración JSON temporal para DataAdapter.
     
     Returns:
         str: Nombre del archivo de configuración (sin ruta completa).
@@ -235,8 +235,8 @@ def fresh_schema():
     
     Útil para tests que modifican el schema y no quieren afectar otros tests.
     """
-    from core.validation.schema import MiningSchema
-    return MiningSchema()
+    from core.validation.schema import PhysicalSchema
+    return PhysicalSchema()
 
 
 @pytest.fixture
@@ -244,8 +244,8 @@ def fresh_validator(fresh_schema):
     """
     Retorna una instancia nueva del validador con schema limpio.
     """
-    from core.validation.validator import MiningValidator
-    return MiningValidator(schema=fresh_schema)
+    from core.validation.validator import PhysicalValidator
+    return PhysicalValidator(schema=fresh_schema)
 
 
 # -----------------------------------------------------------------------------
@@ -255,21 +255,21 @@ def fresh_validator(fresh_schema):
 @pytest.fixture
 def trained_model(synthetic_data, tmp_path):
     """
-    Entrena un modelo MiningGP con datos sintéticos y lo retorna.
+    Entrena un modelo SoftSensorGP con datos sintéticos y lo retorna.
     
     Nota: Este fixture es costoso (entrena un modelo), usar con moderación.
     
     Returns:
-        MiningGP: Modelo entrenado listo para inferencia.
+        SoftSensorGP: Modelo entrenado listo para inferencia.
     """
-    from core.models.mining_gp_pro import MiningGP
+    from core.models.gp_model import SoftSensorGP
     
     # Guardar datos en CSV temporal
     csv_path = tmp_path / "train_data.csv"
     synthetic_data.to_csv(csv_path)
     
     # Entrenar modelo
-    model = MiningGP(
+    model = SoftSensorGP(
         target_col="rougher.output.recovery",
         subsample_step=10,  # Rápido para tests
         add_lag_features=True,

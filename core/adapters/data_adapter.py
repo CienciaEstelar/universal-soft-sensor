@@ -1,7 +1,7 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-Módulo: core/adapters/mining_data_adapter.py
-Proyecto: Arquitectura Minera 4.0
+Módulo: core/adapters/data_adapter.py
+Proyecto: Universal Soft-Sensor
 Autor: Juan Galaz
 Versión: 2.0.0
 ═══════════════════════════════════════════════════════════════════════════════
@@ -12,7 +12,7 @@ DESCRIPCIÓN:
     [FIX CRÍTICO] Este archivo FALTABA en el repositorio.
     El módulo core/adapters/__init__.py lo importaba con:
 
-        from core.adapters.mining_data_adapter import MiningDataAdapter, IngestionStats
+        from core.adapters.data_adapter import DataAdapter, IngestionStats
 
     Pero el archivo no existía, causando ModuleNotFoundError en TODA la codebase:
         - train_universal.py
@@ -23,11 +23,11 @@ DESCRIPCIÓN:
 
     ARQUITECTURA:
     ─────────────
-    MiningDataAdapter unifica MiningCSVAdapter (ingesta raw) y UniversalAdapter
+    DataAdapter unifica CSVAdapter (ingesta raw) y UniversalAdapter
     (ingesta con filtrado por JSON config) en una sola interfaz.
 
         ┌─────────────────────────────────┐
-        │       MiningDataAdapter         │  ← Clase pública principal
+        │       DataAdapter         │  ← Clase pública principal
         └────────────────┬────────────────┘
                          │ hereda
         ┌────────────────▼────────────────┐
@@ -35,17 +35,17 @@ DESCRIPCIÓN:
         └────────────────┬────────────────┘
                          │ delega ingesta raw a
         ┌────────────────▼────────────────┐
-        │       MiningCSVAdapter          │  ← CSV auto-detección
+        │       CSVAdapter          │  ← CSV auto-detección
         └─────────────────────────────────┘
 
 USO:
 ────
     # Modo config JSON (recomendado para entrenamiento)
-    adapter = MiningDataAdapter("dataset_config.json")
+    adapter = DataAdapter("dataset_config.json")
     df = adapter.load_data()
 
     # Modo archivo directo (para scripts rápidos / predict)
-    adapter = MiningDataAdapter.from_file("data/mi_dataset.csv")
+    adapter = DataAdapter.from_file("data/mi_dataset.csv")
     df = adapter.load_raw()
 
     # Streaming para pipeline ETL (datasets grandes)
@@ -62,7 +62,7 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from core.adapters.universal_adapter import UniversalAdapter
-from core.adapters.mining_csv_adapter import MiningCSVAdapter
+from core.adapters.csv_adapter import CSVAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -105,28 +105,28 @@ class IngestionStats:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLASE PRINCIPAL: MiningDataAdapter
+# CLASE PRINCIPAL: DataAdapter
 # ═══════════════════════════════════════════════════════════════════════════
 
-class MiningDataAdapter(UniversalAdapter):
+class DataAdapter(UniversalAdapter):
     """
-    Adaptador de Datos Unificado v2.0 para Minería 4.0.
+    Adaptador de Datos Unificado v2.0 — pipeline universal (dominio-agnóstico).
 
-    Unifica MiningCSVAdapter y UniversalAdapter en una sola interfaz.
+    Unifica CSVAdapter y UniversalAdapter en una sola interfaz.
     Soporta dos modos de operación:
 
     MODO 1 — Config JSON (recomendado):
         Carga un archivo JSON que define el dataset, target, y reglas de filtrado.
         Ideal para entrenamiento y pipeline ETL.
 
-        >>> adapter = MiningDataAdapter("dataset_config.json")
+        >>> adapter = DataAdapter("dataset_config.json")
         >>> df = adapter.load_data()
 
     MODO 2 — Archivo directo (factory method):
         Carga directamente desde un CSV sin config JSON.
         Ideal para scripts de inferencia y exploración rápida.
 
-        >>> adapter = MiningDataAdapter.from_file("data/mining.csv")
+        >>> adapter = DataAdapter.from_file("data/mining.csv")
         >>> df = adapter.load_raw()
 
     Attributes
@@ -146,7 +146,7 @@ class MiningDataAdapter(UniversalAdapter):
         """
         super().__init__(config_filename)
         self.last_stats: Optional[IngestionStats] = None
-        logger.info(f"MiningDataAdapter v2.0 iniciado — config: {config_filename}")
+        logger.info(f"DataAdapter v2.0 iniciado — config: {config_filename}")
 
     # ═══════════════════════════════════════════════════════════════════════
     # FACTORY METHODS
@@ -157,11 +157,11 @@ class MiningDataAdapter(UniversalAdapter):
         cls,
         filepath: str,
         encoding: str = "utf-8"
-    ) -> "MiningDataAdapter":
+    ) -> "DataAdapter":
         """
         Factory method: crea un adaptador desde un archivo CSV directamente.
 
-        Reemplaza el uso legacy de MiningCSVAdapter(filepath).
+        Reemplaza el uso legacy de CSVAdapter(filepath).
 
         Parameters
         ----------
@@ -172,15 +172,15 @@ class MiningDataAdapter(UniversalAdapter):
 
         Returns
         -------
-        MiningDataAdapter
+        DataAdapter
             Instancia configurada para leer el CSV indicado.
 
         Example
         -------
-        >>> adapter = MiningDataAdapter.from_file("data/flotation.csv")
+        >>> adapter = DataAdapter.from_file("data/flotation.csv")
         >>> df = adapter.load_raw(max_rows=10000)
         """
-        # Usamos MiningCSVAdapter como backend de ingesta raw
+        # Usamos CSVAdapter como backend de ingesta raw
         # y devolvemos un objeto que expone la interfaz unificada
         return _FileModeAdapter(filepath, encoding)
 
@@ -229,7 +229,7 @@ class MiningDataAdapter(UniversalAdapter):
         pd.DataFrame
             Dataset raw con todas las columnas, indexado por timestamp.
         """
-        csv_adapter = MiningCSVAdapter(str(self.data_path))
+        csv_adapter = CSVAdapter(str(self.data_path))
         df = csv_adapter.read_all(max_rows=max_rows)
 
         self.last_stats = IngestionStats(
@@ -262,7 +262,7 @@ class MiningDataAdapter(UniversalAdapter):
         pd.DataFrame
             Chunk limpio y sanitizado.
         """
-        csv_adapter = MiningCSVAdapter(str(self.data_path))
+        csv_adapter = CSVAdapter(str(self.data_path))
 
         for chunk in csv_adapter.stream(chunk_size=chunk_size):
             if apply_filtering:
@@ -282,13 +282,13 @@ class MiningDataAdapter(UniversalAdapter):
 # CLASE INTERNA: Modo archivo directo (from_file)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class _FileModeAdapter(MiningDataAdapter):
+class _FileModeAdapter(DataAdapter):
     """
     Adaptador en modo archivo directo.
 
-    Subclase de MiningDataAdapter usada por el factory `from_file`. Comparte
+    Subclase de DataAdapter usada por el factory `from_file`. Comparte
     la interfaz pública (load_data/load_raw/stream/get_target_column/get_stats)
-    para que `isinstance(x, MiningDataAdapter)` sea verdadero y los type hints
+    para que `isinstance(x, DataAdapter)` sea verdadero y los type hints
     no requieran `# type: ignore`.
 
     No usa el __init__ de la base porque no parte de un config JSON; en su
@@ -297,7 +297,7 @@ class _FileModeAdapter(MiningDataAdapter):
 
     def __init__(self, filepath: str, encoding: str = "utf-8"):
         # Bypass intencional de super().__init__: no hay config JSON que cargar.
-        self._csv_adapter = MiningCSVAdapter(filepath, encoding)
+        self._csv_adapter = CSVAdapter(filepath, encoding)
         self.data_path = Path(filepath)
         self.config = {
             "modeling": {"target_column": None},
@@ -344,7 +344,7 @@ class _FileModeAdapter(MiningDataAdapter):
 # EXPORTS
 # ═══════════════════════════════════════════════════════════════════════════
 
-__all__ = ["MiningDataAdapter", "IngestionStats"]
+__all__ = ["DataAdapter", "IngestionStats"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -356,12 +356,12 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
     print("=" * 60)
-    print("🔌 Test MiningDataAdapter v2.0")
+    print("🔌 Test DataAdapter v2.0")
     print("=" * 60)
 
     # Modo 1: Config JSON
     try:
-        adapter = MiningDataAdapter("dataset_config.json")
+        adapter = DataAdapter("dataset_config.json")
         df = adapter.load_data()
         print(f"\n✅ Modo config JSON: {adapter.last_stats}")
         print(f"   Target: {adapter.get_target_column()}")
@@ -371,7 +371,7 @@ if __name__ == "__main__":
     # Modo 2: Archivo directo (si se pasa como argumento)
     if len(sys.argv) > 1:
         filepath = sys.argv[1]
-        adapter2 = MiningDataAdapter.from_file(filepath)
+        adapter2 = DataAdapter.from_file(filepath)
         df2 = adapter2.load_raw(max_rows=1000)
         print(f"\n✅ Modo archivo directo: {adapter2.last_stats}")
         print(f"   Columnas: {df2.columns.tolist()[:5]}...")

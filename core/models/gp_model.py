@@ -1,7 +1,7 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-Módulo: core/models/mining_gp_pro.py
-Proyecto: Arquitectura Minera 4.0
+Módulo: core/models/gp_model.py
+Proyecto: Universal Soft-Sensor
 Autor: Juan Galaz
 Versión: 4.1.0
 ═══════════════════════════════════════════════════════════════════════════════
@@ -61,10 +61,10 @@ HISTORIAL DE CAMBIOS:
 USO BÁSICO:
 ═══════════════════════════════════════════════════════════════════════════════
 
-    from core.models.mining_gp_pro import MiningGP
+    from core.models.gp_model import SoftSensorGP
     
     # Entrenamiento completo desde archivo
-    model = MiningGP(target_col="_silica_concentrate")
+    model = SoftSensorGP(target_col="_silica_concentrate")
     metrics = model.train_from_file("data/processed/mining_clean.csv")
     
     # Predicción
@@ -181,10 +181,10 @@ class TrainingArtifacts:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLASE PRINCIPAL: MiningGP
+# CLASE PRINCIPAL: SoftSensorGP
 # ═══════════════════════════════════════════════════════════════════════════
 
-class MiningGP:
+class SoftSensorGP:
     """
     Soft-Sensor v4.1 - Versión Universal y Limpia.
     
@@ -199,7 +199,7 @@ class MiningGP:
     3. El sistema es verdaderamente "universal" para cualquier dataset minero
     
     Example:
-        >>> model = MiningGP(target_col="rougher.output.recovery")
+        >>> model = SoftSensorGP(target_col="rougher.output.recovery")
         >>> metrics = model.train_from_file("gold_data.csv", n_trials=30)
         >>> print(f"R² = {metrics.r2:.4f}")
     """
@@ -279,7 +279,7 @@ class MiningGP:
         
         # Log de inicialización
         logger.info(
-            f"MiningGP v4.1.0 inicializado - "
+            f"SoftSensorGP v4.1.0 inicializado - "
             f"Target: {self.target_col}, "
             f"Subsample: {self.subsample_step} (desde CONFIG)"
         )
@@ -1139,7 +1139,7 @@ class MiningGP:
 # ═══════════════════════════════════════════════════════════════════════════
 # EXPORTS PÚBLICOS
 # ═══════════════════════════════════════════════════════════════════════════
-__all__ = ["MiningGP", "ModelMetrics", "TrainingArtifacts"]
+__all__ = ["SoftSensorGP", "ModelMetrics", "TrainingArtifacts"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1151,8 +1151,8 @@ def main():
     Punto de entrada para uso desde línea de comandos.
     
     Ejemplos:
-        python mining_gp_pro.py --data data/clean.csv --target _silica_concentrate
-        python mining_gp_pro.py --trials 30 --subsample 20
+        python gp_model.py --data data/clean.csv --target _silica_concentrate
+        python gp_model.py --trials 30 --subsample 20
     """
     import argparse
     
@@ -1161,9 +1161,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos de uso:
-  python mining_gp_pro.py
-  python mining_gp_pro.py --data data/gold.csv --target recovery
-  python mining_gp_pro.py --trials 30 --subsample 20 --no-fallback
+  python gp_model.py
+  python gp_model.py --data data/gold.csv --target recovery
+  python gp_model.py --trials 30 --subsample 20 --no-fallback
         """
     )
     parser.add_argument("--data", "-d", type=str, default=None,
@@ -1186,7 +1186,7 @@ Ejemplos de uso:
     args = parser.parse_args()
     
     try:
-        model = MiningGP(
+        model = SoftSensorGP(
             target_col=args.target,
             subsample_step=args.subsample,
             add_lag_features=not args.no_lags,

@@ -3,10 +3,10 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "proyecto-minero"
+name = "universal-soft-sensor"
 # [FIX] Versión sincronizada con settings.py (era 1.0.0 en pyproject pero 1.1.0 en settings)
 version = "1.1.0"
-description = "Pipeline ETL y Soft-Sensor GP para proceso de flotación minera"
+description = "Pipeline ETL + Soft-Sensor universal con Gaussian Processes e incertidumbre calibrada (minería, mantenimiento predictivo, cualquier proceso con sensores)"
 readme = "README.md"
 # [FIX] Licencia corregida de MIT a AGPL-3.0 para coincidir con README.md y badge del repo
 # ANTES: license = {text = "MIT"}  ← contradecía el README que declaraba AGPL-3.0
@@ -19,12 +19,13 @@ authors = [
 requires-python = ">=3.10"
 
 keywords = [
-    "mining",
-    "flotation",
     "soft-sensor",
     "gaussian-process",
+    "uncertainty",
+    "predictive-maintenance",
     "etl",
-    "industrial"
+    "industrial",
+    "universal"
 ]
 
 classifiers = [
@@ -69,9 +70,9 @@ docs = [
 ]
 
 [project.scripts]
-mining-pipeline = "core.pipeline:main"
-mining-gp = "core.models.mining_gp_pro:main"
-mining-scan = "tools.scan_schema:main"
+softsensor-pipeline = "core.pipeline:main"
+softsensor-gp = "core.models.gp_model:main"
+softsensor-scan = "tools.scan_schema:main"
 
 [project.urls]
 # [FIX] URL actualizada con el handle real de GitHub

@@ -1,7 +1,7 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
 Módulo: train_universal.py
-Proyecto: Arquitectura Minera 4.0
+Proyecto: Universal Soft-Sensor
 Versión: 2.3.2 — BUGFIX
 
 HISTORIAL:
@@ -28,8 +28,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from core.adapters import MiningDataAdapter
-from core.models.mining_gp_pro import MiningGP, ModelMetrics
+from core.adapters import DataAdapter
+from core.models.gp_model import SoftSensorGP, ModelMetrics
 from config.settings import CONFIG
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -48,7 +48,7 @@ def prepare_data_phase() -> tuple:
         border_style="cyan"
     ))
     
-    adapter = MiningDataAdapter("dataset_config.json")
+    adapter = DataAdapter("dataset_config.json")
     df = adapter.load_data()
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -76,7 +76,7 @@ def train_model_phase(data_path: Path, ad_config: dict) -> tuple:
     
     target = ad_config["modeling"]["target_column"]
     
-    model = MiningGP(
+    model = SoftSensorGP(
         target_col=target,
         use_fallback_model=True
     )
@@ -89,7 +89,7 @@ def train_model_phase(data_path: Path, ad_config: dict) -> tuple:
     
     return model, metrics
 
-def report_phase(dataset_name: str, model: MiningGP, metrics: ModelMetrics):
+def report_phase(dataset_name: str, model: SoftSensorGP, metrics: ModelMetrics):
     """
     FASE 3: Auditoría y Cierre.
     """

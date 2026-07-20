@@ -209,11 +209,11 @@ PATTERN_RULES: List[Tuple[List[str], PhysicalCategory, int]] = [
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CLASE PRINCIPAL: MiningSchema
+# CLASE PRINCIPAL: PhysicalSchema
 # ═══════════════════════════════════════════════════════════════════════════
 
 @dataclass
-class MiningSchema:
+class PhysicalSchema:
     """
     Schema de validación física universal para procesos industriales.
     
@@ -480,7 +480,7 @@ class MiningSchema:
         n_cached = len(self._pattern_cache)
         n_categories = len(PhysicalCategory)
         return (
-            f"MiningSchema(overrides={n_overrides}, "
+            f"PhysicalSchema(overrides={n_overrides}, "
             f"cached={n_cached}, categories={n_categories})"
         )
 
@@ -489,7 +489,7 @@ class MiningSchema:
 # INSTANCIA GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════
 
-SCHEMA = MiningSchema()
+SCHEMA = PhysicalSchema()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -500,7 +500,7 @@ if __name__ == "__main__":
     import sys
     
     print("=" * 70)
-    print("📋 Schema de Validación Física v2.0 - Proyecto Minero 4.0")
+    print("📋 Schema de Validación Física v2.0 - Universal Soft-Sensor")
     print("=" * 70)
     
     # Mostrar categorías

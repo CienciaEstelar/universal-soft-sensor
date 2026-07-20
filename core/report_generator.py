@@ -2,7 +2,7 @@
 ═══════════════════════════════════════════════════════════════════════════════
 Módulo: core/report_generator.py
 Versión: 3.4.0 (Audit Engine)
-Autor: Juan Galaz (Arquitectura Minera 4.0)
+Autor: Juan Galaz (Universal Soft-Sensor)
 Fecha: 16 de Enero, 2026
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -29,7 +29,7 @@ CARACTERÍSTICAS DE ROBUSTEZ
 ARQUITECTURA
 -----------
 - ShiftReportData: Estructura de datos inmutable (el "Contrato").
-- MiningReportEngine: Clase que define la identidad visual corporativa (Header/Footer).
+- ReportEngine: Clase que define la identidad visual corporativa (Header/Footer).
 - ReportManager: Controlador lógico que orquesta la creación del archivo.
 ═══════════════════════════════════════════════════════════════════════════════
 """
@@ -72,7 +72,7 @@ class ShiftReportData:
 # 2. MOTOR DE RENDERIZADO VISUAL (PDF ENGINE)
 # =============================================================================
 
-class MiningReportEngine(FPDF):
+class ReportEngine(FPDF):
     """
     Extensión de FPDF que encapsula la identidad visual corporativa.
     Define cómo se ven los encabezados, pies de página y tarjetas de datos.
@@ -177,7 +177,7 @@ class ReportManager:
         Returns:
             str: Ruta absoluta del archivo generado.
         """
-        pdf = MiningReportEngine()
+        pdf = ReportEngine()
         pdf.add_page()
         
         # --- PORTADA / TÍTULO ---

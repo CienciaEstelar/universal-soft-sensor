@@ -21,7 +21,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import CONFIG
-from core.adapters import MiningCSVAdapter
+from core.adapters import CSVAdapter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,7 +53,7 @@ def escanear_estructura(max_rows: int = None, show_sample: bool = True) -> dict:
         # Verificar que existe el archivo
         CONFIG.validate()
         
-        adapter = MiningCSVAdapter(str(CONFIG.DATA_RAW_PATH))
+        adapter = CSVAdapter(str(CONFIG.DATA_RAW_PATH))
         
         if max_rows:
             # Leer cantidad específica

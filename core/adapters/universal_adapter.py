@@ -1,6 +1,6 @@
 """
 Módulo: core/adapters/universal_adapter.py
-Autor: Juan Galaz (Arquitectura Minera 4.0)
+Autor: Juan Galaz (Universal Soft-Sensor)
 Versión: 1.2 (Documentación Extendida)
 
 Descripción:

@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(grep -nE \"except.*:\\\\s*$|except\\\\s+\\\\w+\\\\s*:\\\\s*$\" --include='*.py' -rA1 core config tools)",
+      "Bash(grep -B1 -E \"^\\\\s*pass\\\\s*$|^\\\\s*continue\\\\s*$\")",
+      "Bash(curl -sS --max-time 15 -L https://www.gnu.org/licenses/agpl-3.0.txt -o LICENSE)",
+      "Bash(grep -nA3 \"def test_default_initialization\\\\|def test_get_feature_importance\" tests/test_modeling.py)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git rm *)",
+      "Bash(git push *)",
+      "Bash(git remote *)",
+      "Read(//home/juan-galaz/.ssh/**)",
+      "Bash(ssh -T -o BatchMode=yes -o ConnectTimeout=5 git@github.com)",
+      "Bash(ssh-keygen -t ed25519 -C \"juan.galaz.a@usach.cl\" -f ~/.ssh/id_ed25519 -N \"\")",
+      "Bash(ssh-keyscan -t ed25519 github.com)",
+      "Bash(sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts)",
+      "Bash(ssh -o BatchMode=yes -T git@github.com)"
+    ]
+  }
+}

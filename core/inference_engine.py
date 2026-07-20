@@ -32,9 +32,9 @@ HISTORIAL DE CAMBIOS:
 USO:
 ═══════════════════════════════════════════════════════════════════════════════
 
-    from core.inference_engine import MiningInference
+    from core.inference_engine import InferenceEngine
     
-    engine = MiningInference()
+    engine = InferenceEngine()
     
     # Predicción única (último punto)
     resultado = engine.predict_scenario(df_ultimas_50_horas)
@@ -56,18 +56,18 @@ from typing import Dict, List, Optional, Tuple
 
 # Importaciones internas
 from config.settings import CONFIG
-from core.models.mining_gp_pro import MiningGP, TrainingArtifacts
+from core.models.gp_model import SoftSensorGP, TrainingArtifacts
 
 logger = logging.getLogger("InferenceEngine")
 
 
-class MiningInference:
+class InferenceEngine:
     """
     Clase controladora para la ejecución de modelos mineros en producción.
     
     Attributes
     ----------
-    model_wrapper : MiningGP
+    model_wrapper : SoftSensorGP
         Wrapper del modelo con scalers y configuración.
     loaded : bool
         Indica si hay un modelo cargado en memoria.
@@ -89,7 +89,7 @@ class MiningInference:
             model_path (str, optional): Ruta absoluta al archivo .pkl. 
                                         Por defecto es None.
         """
-        self.model_wrapper = MiningGP() 
+        self.model_wrapper = SoftSensorGP() 
         self.loaded = False
         self.model_path = None
         self._feature_importance_cache = None
@@ -470,11 +470,11 @@ if __name__ == "__main__":
     )
     
     print("=" * 70)
-    print("🔮 Test de MiningInference v1.2")
+    print("🔮 Test de InferenceEngine v1.2")
     print("=" * 70)
     
     try:
-        engine = MiningInference()
+        engine = InferenceEngine()
         print(f"\n📊 Info del modelo:")
         for k, v in engine.get_model_info().items():
             print(f"   {k}: {v}")
