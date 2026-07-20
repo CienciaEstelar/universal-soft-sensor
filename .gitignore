@@ -12,6 +12,13 @@ __pycache__/
 *.pyc
 
 # =========================
+# Artefactos de tests de seguridad (NO commitear)
+# =========================
+config/_evil*.json
+*.pwned
+/tmp/pwned.txt
+
+# =========================
 # Datos pesados / reales
 # =========================
 data/
@@ -73,3 +80,4 @@ htmlcov/
 *.egg-info/
 build/
 dist/
+.kaggle_token
