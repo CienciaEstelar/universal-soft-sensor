@@ -1,5 +1,5 @@
 """
-Core del Proyecto Minero 4.0
+Core del Universal Soft-Sensor
 
 Módulos:
     - adapters: Ingesta de datos desde diversas fuentes
@@ -8,23 +8,23 @@ Módulos:
     - pipeline: Orquestación ETL completa
 """
 
-from core.adapters import MiningCSVAdapter
-from core.validation import SCHEMA, MiningValidator, ValidationStats
-from core.preprocessor import MiningPreprocessor, CleaningStats
-from core.pipeline import MiningPipeline
+from core.adapters import CSVAdapter
+from core.validation import SCHEMA, PhysicalValidator, ValidationStats
+from core.preprocessor import Preprocessor, CleaningStats
+from core.pipeline import SoftSensorPipeline
 
 __all__ = [
     # Adapters
-    "MiningCSVAdapter",
+    "CSVAdapter",
     # Validation
     "SCHEMA",
-    "MiningValidator",
+    "PhysicalValidator",
     "ValidationStats",
     # Preprocessing
-    "MiningPreprocessor",
+    "Preprocessor",
     "CleaningStats",
     # Pipeline
-    "MiningPipeline",
+    "SoftSensorPipeline",
 ]
 
 __version__ = "1.0.0"

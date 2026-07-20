@@ -10,9 +10,9 @@ Características:
     - Fail-safe absoluto (nunca rompe el pipeline)
     
 Uso:
-    from core.preprocessor import MiningPreprocessor
+    from core.preprocessor import Preprocessor
     
-    preprocessor = MiningPreprocessor(estrategia_nulos="interpolate")
+    preprocessor = Preprocessor(estrategia_nulos="interpolate")
     df_limpio = preprocessor.clean_stream(df_crudo)
 """
 
@@ -42,7 +42,7 @@ class CleaningStats:
         )
 
 
-class MiningPreprocessor:
+class Preprocessor:
     """
     Preprocesador de datos para flujos numéricos continuos.
     
@@ -332,7 +332,7 @@ class MiningPreprocessor:
 # =============================================================================
 # __init__.py helper
 # =============================================================================
-__all__ = ["MiningPreprocessor", "CleaningStats"]
+__all__ = ["Preprocessor", "CleaningStats"]
 
 
 # =============================================================================
@@ -349,7 +349,7 @@ if __name__ == "__main__":
         "sensor_c": np.random.randn(10) * 10 + 50,
     })
     
-    print("🔧 Test de MiningPreprocessor")
+    print("🔧 Test de Preprocessor")
     print("=" * 60)
     print("Datos de entrada:")
     print(df_test)
@@ -363,7 +363,7 @@ if __name__ == "__main__":
     
     for i, config in enumerate(configs):
         print(f"\n--- Configuración {i+1}: {config} ---")
-        preprocessor = MiningPreprocessor(**config)
+        preprocessor = Preprocessor(**config)
         df_clean = preprocessor.clean_stream(df_test)
         
         print(f"Estadísticas: {preprocessor.last_stats}")

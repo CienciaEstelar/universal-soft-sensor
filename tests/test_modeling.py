@@ -6,8 +6,8 @@ Versión: 2.0.1 — BUGFIX
 HISTORIAL:
     [v2.0.1 - 2026]
         [FIX] TypeError en TestFeatureEngineering.test_rolling_features_if_enabled.
-              MiningGP.__init__ no tiene el parámetro add_rolling_features.
-              ANTES: MiningGP(..., add_rolling_features=True)
+              SoftSensorGP.__init__ no tiene el parámetro add_rolling_features.
+              ANTES: SoftSensorGP(..., add_rolling_features=True)
                      ↑ TypeError: __init__() got an unexpected keyword argument
               AHORA: El test busca columnas rolling en el output sin pasar
                      un kwarg inexistente. Si el modelo las genera, las encontrará.
@@ -27,15 +27,15 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.models.mining_gp_pro import MiningGP
+from core.models.gp_model import SoftSensorGP
 
 
-class TestMiningGPInitialization:
-    """Tests de inicialización de MiningGP."""
+class TestSoftSensorGPInitialization:
+    """Tests de inicialización de SoftSensorGP."""
     
     def test_default_initialization(self):
         """Verificar inicialización por defecto."""
-        model = MiningGP()
+        model = SoftSensorGP()
         
         # Default tras la auditoría: subsample=1 (sin diezmar). Ver
         # config/settings.py: el subsampling agresivo era un anti-patrón
@@ -46,7 +46,7 @@ class TestMiningGPInitialization:
     
     def test_custom_initialization(self):
         """Verificar inicialización con parámetros custom."""
-        model = MiningGP(
+        model = SoftSensorGP(
             target_col="custom_target",
             subsample_step=50,
             add_lag_features=False,
@@ -60,7 +60,7 @@ class TestMiningGPInitialization:
     
     def test_lag_periods_configuration(self):
         """Verificar configuración de lag periods."""
-        model = MiningGP(lag_periods=[1, 5, 10])
+        model = SoftSensorGP(lag_periods=[1, 5, 10])
         
         assert model.lag_periods == [1, 5, 10]
 
@@ -71,7 +71,7 @@ class TestFeatureEngineering:
     def test_lag_features_creation(self, synthetic_data):
         """Verificar creación de lags."""
         target = "rougher.output.recovery"
-        model = MiningGP(target_col=target, add_lag_features=True, add_diff_features=False)
+        model = SoftSensorGP(target_col=target, add_lag_features=True, add_diff_features=False)
         
         df_eng = model._create_lag_features(synthetic_data, target)
         
@@ -82,7 +82,7 @@ class TestFeatureEngineering:
     def test_diff_features_creation(self, synthetic_data):
         """Verificar creación de diferencias."""
         target = "rougher.output.recovery"
-        model = MiningGP(target_col=target, add_lag_features=False, add_diff_features=True)
+        model = SoftSensorGP(target_col=target, add_lag_features=False, add_diff_features=True)
         
         df_eng = model._create_lag_features(synthetic_data, target)
         
@@ -92,7 +92,7 @@ class TestFeatureEngineering:
     def test_lag_values_correctness(self, synthetic_data):
         """Verificar que los valores de lag son matemáticamente correctos."""
         target = "rougher.output.recovery"
-        model = MiningGP(target_col=target, add_lag_features=True)
+        model = SoftSensorGP(target_col=target, add_lag_features=True)
         
         df_eng = model._create_lag_features(synthetic_data, target)
         
@@ -106,7 +106,7 @@ class TestFeatureEngineering:
         """
         Verificar features rolling si el modelo las genera.
 
-        [FIX] ANTES: MiningGP(..., add_rolling_features=True)
+        [FIX] ANTES: SoftSensorGP(..., add_rolling_features=True)
                      ↑ TypeError: __init__() no tiene ese parámetro.
         AHORA: Se instancia con los parámetros reales del constructor
                y se verifica qué columnas rolling genera, si es que genera.
@@ -116,7 +116,7 @@ class TestFeatureEngineering:
         target = "rougher.output.recovery"
 
         # [FIX] Constructor real — sin add_rolling_features que no existe
-        model = MiningGP(
+        model = SoftSensorGP(
             target_col=target,
             add_lag_features=True,
             add_diff_features=True,
@@ -139,7 +139,7 @@ class TestFeatureCleaning:
     def test_constant_feature_removal(self, synthetic_data):
         """Verificar eliminación de features constantes."""
         target = "rougher.output.recovery"
-        model = MiningGP(target_col=target, remove_constant_features=True)
+        model = SoftSensorGP(target_col=target, remove_constant_features=True)
         
         # synthetic_data tiene 'flotation_section_03_air_amount' como constante
         X_df = synthetic_data.drop(columns=[target])
@@ -152,7 +152,7 @@ class TestFeatureCleaning:
     def test_target_not_removed_during_cleaning(self, synthetic_data):
         """Verificar que el target no se elimina accidentalmente."""
         target = "rougher.output.recovery"
-        model = MiningGP(
+        model = SoftSensorGP(
             target_col=target,
             remove_constant_features=True,
             remove_correlated_features=True
@@ -172,7 +172,7 @@ class TestTrainingCycle:
         """Prueba de Integración: Ciclo de Vida Completo."""
         target = "rougher.output.recovery"
         
-        model = MiningGP(
+        model = SoftSensorGP(
             target_col=target,
             subsample_step=5,
             add_lag_features=True,
@@ -203,7 +203,7 @@ class TestTrainingCycle:
         """Verificar que el modelo puede predecir después de entrenar."""
         target = "rougher.output.recovery"
         
-        model = MiningGP(target_col=target, subsample_step=10)
+        model = SoftSensorGP(target_col=target, subsample_step=10)
         
         model.train_from_file(
             filepath=temp_csv,
@@ -238,7 +238,7 @@ class TestModelPersistence:
         trained_model.save(str(model_path))
         assert model_path.exists()
         
-        new_model = MiningGP()
+        new_model = SoftSensorGP()
         new_model.load(str(model_path))
         
         assert new_model.model is not None
@@ -250,7 +250,7 @@ class TestModelPersistence:
         model_path = tmp_path / "predict_test.pkl"
         trained_model.save(str(model_path))
         
-        new_model = MiningGP()
+        new_model = SoftSensorGP()
         new_model.load(str(model_path))
         
         target = new_model.target_col
@@ -266,7 +266,7 @@ class TestMetrics:
     
     def test_training_returns_metrics(self, temp_csv):
         """Verificar que el entrenamiento retorna métricas."""
-        model = MiningGP(
+        model = SoftSensorGP(
             target_col="rougher.output.recovery",
             subsample_step=10,
         )
@@ -286,12 +286,12 @@ class TestInferenceEngineIntegration:
     
     def test_predict_scenario(self, trained_model, synthetic_data, tmp_path):
         """Verificar predict_scenario del inference engine."""
-        from core.inference_engine import MiningInference
+        from core.inference_engine import InferenceEngine
         
         model_path = tmp_path / "inference_test.pkl"
         trained_model.save(str(model_path))
         
-        engine = MiningInference(model_path=str(model_path))
+        engine = InferenceEngine(model_path=str(model_path))
         
         window = synthetic_data.iloc[-50:]
         result = engine.predict_scenario(window)
@@ -303,12 +303,12 @@ class TestInferenceEngineIntegration:
     
     def test_predict_series(self, trained_model, synthetic_data, tmp_path):
         """Verificar predict_series del inference engine."""
-        from core.inference_engine import MiningInference
+        from core.inference_engine import InferenceEngine
         
         model_path = tmp_path / "series_test.pkl"
         trained_model.save(str(model_path))
         
-        engine = MiningInference(model_path=str(model_path))
+        engine = InferenceEngine(model_path=str(model_path))
         
         series = engine.predict_series(synthetic_data, n_points=20, min_history=30)
         
@@ -319,12 +319,12 @@ class TestInferenceEngineIntegration:
     
     def test_get_feature_importance(self, trained_model, tmp_path):
         """Verificar get_feature_importance del inference engine."""
-        from core.inference_engine import MiningInference
+        from core.inference_engine import InferenceEngine
         
         model_path = tmp_path / "importance_test.pkl"
         trained_model.save(str(model_path))
         
-        engine = MiningInference(model_path=str(model_path))
+        engine = InferenceEngine(model_path=str(model_path))
         
         importance = engine.get_feature_importance(top_n=5)
         

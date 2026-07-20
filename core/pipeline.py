@@ -11,8 +11,8 @@ Uso:
     python -m core.pipeline
     
     # O desde código:
-    from core.pipeline import MiningPipeline
-    pipeline = MiningPipeline()
+    from core.pipeline import SoftSensorPipeline
+    pipeline = SoftSensorPipeline()
     pipeline.run()
 """
 
@@ -37,9 +37,9 @@ from rich.logging import RichHandler
 
 # Componentes del proyecto
 from config.settings import CONFIG
-from core.adapters import MiningCSVAdapter
-from core.validation import MiningValidator
-from core.preprocessor import MiningPreprocessor
+from core.adapters import CSVAdapter
+from core.validation import PhysicalValidator
+from core.preprocessor import Preprocessor
 
 
 def setup_logging(log_file: Optional[Path] = None, level: str = "INFO") -> logging.Logger:
@@ -83,7 +83,7 @@ def setup_logging(log_file: Optional[Path] = None, level: str = "INFO") -> loggi
     return logger
 
 
-class MiningPipeline:
+class SoftSensorPipeline:
     """
     Pipeline ETL para datos de proceso minero.
     
@@ -141,9 +141,9 @@ class MiningPipeline:
         }
         
         # Componentes
-        self.adapter: Optional[MiningCSVAdapter] = None
-        self.validator: Optional[MiningValidator] = None
-        self.preprocessor: Optional[MiningPreprocessor] = None
+        self.adapter: Optional[CSVAdapter] = None
+        self.validator: Optional[PhysicalValidator] = None
+        self.preprocessor: Optional[Preprocessor] = None
         
         self._init_components(estrategia_limpieza, detectar_outliers)
     
@@ -162,9 +162,9 @@ class MiningPipeline:
                 self.logger.info(f"Archivo previo eliminado: {self.output_file}")
             
             # Inicializar componentes
-            self.adapter = MiningCSVAdapter(str(CONFIG.DATA_RAW_PATH))
-            self.validator = MiningValidator()
-            self.preprocessor = MiningPreprocessor(
+            self.adapter = CSVAdapter(str(CONFIG.DATA_RAW_PATH))
+            self.validator = PhysicalValidator()
+            self.preprocessor = Preprocessor(
                 estrategia_nulos=estrategia,
                 detectar_outliers=outliers
             )
@@ -351,7 +351,7 @@ def main():
     
     args = parser.parse_args()
     
-    pipeline = MiningPipeline(
+    pipeline = SoftSensorPipeline(
         chunk_size=args.chunk_size,
         estrategia_limpieza=args.estrategia,
         detectar_outliers=args.outliers,

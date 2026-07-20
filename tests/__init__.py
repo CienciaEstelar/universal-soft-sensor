@@ -1,1 +1,1 @@
-"""Tests del Proyecto Minero 4.0."""
+"""Tests del Universal Soft-Sensor."""

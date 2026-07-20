@@ -1,7 +1,7 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
 Módulo: config/settings.py
-Proyecto: Arquitectura Minera 4.0
+Proyecto: Universal Soft-Sensor
 Autor: Juan Galaz
 Versión: 1.1.0
 ═══════════════════════════════════════════════════════════════════════════════
@@ -14,7 +14,7 @@ HISTORIAL DE CAMBIOS:
     [v1.1.0 - Enero 2026] CLEAN CODE UPDATE
         ✅ AGREGADO: DEFAULT_SUBSAMPLE_STEP como constante maestra
            - Antes: El valor de subsample estaba hardcodeado en múltiples archivos
-             (train_universal.py usaba 10, inference.py usaba 50, mining_gp_pro.py usaba 50)
+             (train_universal.py usaba 10, inference.py usaba 50, gp_model.py usaba 50)
            - Ahora: Valor único centralizado aquí, todos los módulos lo importan
            - Beneficio: Cambiar el subsample en un solo lugar afecta todo el sistema
         
@@ -63,7 +63,7 @@ def get_project_root() -> Path:
 @dataclass
 class ProjectConfig:
     """
-    Configuración centralizada del proyecto minero.
+    Configuración centralizada del proyecto.
     
     Esta clase actúa como "Single Source of Truth" para todas las rutas
     y parámetros configurables del sistema. Cualquier valor que necesite
@@ -95,9 +95,12 @@ class ProjectConfig:
     def DATA_RAW_PATH(self) -> Path:
         """
         Ruta al dataset crudo original.
-        Puede ser sobreescrita con la variable de entorno MINING_DATA_RAW_PATH.
+        Puede ser sobreescrita con la variable de entorno DATA_RAW_PATH
+        (o su alias legado MINING_DATA_RAW_PATH, mantenido por retrocompat).
+        El default apunta al dataset de flotación minera — primer caso de uso
+        del pipeline; cualquier otro dominio se configura vía env/config.
         """
-        env_path = os.getenv("MINING_DATA_RAW_PATH")
+        env_path = os.getenv("DATA_RAW_PATH") or os.getenv("MINING_DATA_RAW_PATH")
         if env_path:
             return Path(env_path)
         return self.DATA_DIR / "MiningProcess_Flotation_Plant_Database.csv"
@@ -174,7 +177,7 @@ class ProjectConfig:
     # PROBLEMA ANTERIOR:
     #   - train_universal.py tenía: subsample_step = 10
     #   - inference.py tenía: df_processed = df_full.iloc[::50]
-    #   - mining_gp_pro.py tenía: default subsample_step = 50
+    #   - gp_model.py tenía: default subsample_step = 50
     #   
     #   Esto causaba desalineación de features durante inferencia porque
     #   el modelo se entrenaba con un subsample y predecía con otro.
@@ -249,7 +252,7 @@ CONFIG = ProjectConfig()
 # CLI: Ejecutar este archivo directamente para verificar configuración
 # ═══════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    print("🔧 Configuración del Proyecto Minero 4.0 (v1.1.0)")
+    print("🔧 Configuración del Universal Soft-Sensor (v1.1.0)")
     print("=" * 60)
     print(CONFIG)
     print("=" * 60)

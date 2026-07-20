@@ -1,7 +1,7 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
 Módulo: tools/diagnostico_datos.py
-Proyecto: Arquitectura Minera 4.0
+Proyecto: Universal Soft-Sensor
 Autor: Juan Galaz (Refactorizado por Gemini)
 Versión: 1.2.1
 ═══════════════════════════════════════════════════════════════════════════════

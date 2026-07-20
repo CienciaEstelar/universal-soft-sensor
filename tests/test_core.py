@@ -1,5 +1,5 @@
 """
-Tests unitarios para el Proyecto Minero 4.0
+Tests unitarios para el Universal Soft-Sensor
 
 Ejecutar con: pytest tests/ -v
 """
@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-class TestMiningSchema:
+class TestPhysicalSchema:
     """Tests para el esquema de validación."""
     
     def test_schema_import(self):
@@ -53,9 +53,9 @@ class TestMiningSchema:
     
     def test_add_rule(self):
         """Verificar que se pueden agregar reglas dinámicamente."""
-        from core.validation.schema import MiningSchema
+        from core.validation.schema import PhysicalSchema
         
-        schema = MiningSchema()
+        schema = PhysicalSchema()
         schema.add_rule("nueva_columna", 0, 100)
         
         min_val, max_val = schema.get_range("nueva_columna")
@@ -63,7 +63,7 @@ class TestMiningSchema:
         assert max_val == 100
 
 
-class TestMiningValidator:
+class TestPhysicalValidator:
     """Tests para el validador de datos."""
     
     @pytest.fixture
@@ -77,14 +77,14 @@ class TestMiningValidator:
     
     def test_validator_import(self):
         """Verificar que el validador se importa correctamente."""
-        from core.validation.validator import MiningValidator
-        assert MiningValidator is not None
+        from core.validation.validator import PhysicalValidator
+        assert PhysicalValidator is not None
     
     def test_validate_filters_invalid_rows(self, sample_df):
         """Verificar que se filtran filas inválidas."""
-        from core.validation.validator import MiningValidator
+        from core.validation.validator import PhysicalValidator
         
-        validator = MiningValidator()
+        validator = PhysicalValidator()
         df_clean = validator.validate(sample_df)
         
         # Solo la fila 3 (índice 3) debería sobrevivir
@@ -96,9 +96,9 @@ class TestMiningValidator:
     
     def test_validate_preserves_nan(self, sample_df):
         """Verificar que NaN se preservan (no se filtran)."""
-        from core.validation.validator import MiningValidator
+        from core.validation.validator import PhysicalValidator
         
-        validator = MiningValidator()
+        validator = PhysicalValidator()
         df_clean = validator.validate(sample_df)
         
         # La fila con NaN debería estar presente
@@ -106,9 +106,9 @@ class TestMiningValidator:
     
     def test_validate_empty_df(self):
         """Verificar manejo de DataFrame vacío."""
-        from core.validation.validator import MiningValidator
+        from core.validation.validator import PhysicalValidator
         
-        validator = MiningValidator()
+        validator = PhysicalValidator()
         df_empty = pd.DataFrame()
         df_result = validator.validate(df_empty)
         
@@ -116,16 +116,16 @@ class TestMiningValidator:
     
     def test_validation_stats(self, sample_df):
         """Verificar que se generan estadísticas."""
-        from core.validation.validator import MiningValidator
+        from core.validation.validator import PhysicalValidator
         
-        validator = MiningValidator()
+        validator = PhysicalValidator()
         validator.validate(sample_df)
         
         assert validator.last_stats is not None
         assert validator.last_stats.filas_entrada == 4
 
 
-class TestMiningPreprocessor:
+class TestPreprocessor:
     """Tests para el preprocesador."""
     
     @pytest.fixture
@@ -138,14 +138,14 @@ class TestMiningPreprocessor:
     
     def test_preprocessor_import(self):
         """Verificar que el preprocesador se importa."""
-        from core.preprocessor import MiningPreprocessor
-        assert MiningPreprocessor is not None
+        from core.preprocessor import Preprocessor
+        assert Preprocessor is not None
     
     def test_replaces_infinites(self, sample_df):
         """Verificar que infinitos se reemplazan."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
-        preprocessor = MiningPreprocessor()
+        preprocessor = Preprocessor()
         df_clean = preprocessor.clean_stream(sample_df)
         
         # No debería haber infinitos
@@ -153,9 +153,9 @@ class TestMiningPreprocessor:
     
     def test_imputes_nulls_ffill(self, sample_df):
         """Verificar imputación forward fill."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
-        preprocessor = MiningPreprocessor(estrategia_nulos="ffill")
+        preprocessor = Preprocessor(estrategia_nulos="ffill")
         df_clean = preprocessor.clean_stream(sample_df)
         
         # No debería haber NaN (después de ffill + fillna final)
@@ -163,39 +163,39 @@ class TestMiningPreprocessor:
     
     def test_imputes_nulls_interpolate(self, sample_df):
         """Verificar imputación por interpolación."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
-        preprocessor = MiningPreprocessor(estrategia_nulos="interpolate")
+        preprocessor = Preprocessor(estrategia_nulos="interpolate")
         df_clean = preprocessor.clean_stream(sample_df)
         
         assert not df_clean.isna().any().any()
     
     def test_invalid_strategy_raises(self):
         """Verificar que estrategia inválida lanza error."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
         with pytest.raises(ValueError):
-            MiningPreprocessor(estrategia_nulos="invalid_strategy")
+            Preprocessor(estrategia_nulos="invalid_strategy")
     
     def test_preserves_non_numeric_columns(self):
         """Verificar que columnas no numéricas no se modifican."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
         df = pd.DataFrame({
             "numeric": [1.0, np.nan, 3.0],
             "text": ["a", "b", "c"]
         })
         
-        preprocessor = MiningPreprocessor()
+        preprocessor = Preprocessor()
         df_clean = preprocessor.clean_stream(df)
         
         assert df_clean["text"].tolist() == ["a", "b", "c"]
     
     def test_cleaning_stats(self, sample_df):
         """Verificar que se generan estadísticas de limpieza."""
-        from core.preprocessor import MiningPreprocessor
+        from core.preprocessor import Preprocessor
         
-        preprocessor = MiningPreprocessor()
+        preprocessor = Preprocessor()
         preprocessor.clean_stream(sample_df)
         
         assert preprocessor.last_stats is not None
@@ -245,9 +245,9 @@ class TestIntegration:
     def test_adapter_reads_data(self, check_data_exists):
         """Verificar que el adapter lee datos correctamente."""
         from config.settings import CONFIG
-        from core.adapters import MiningCSVAdapter
+        from core.adapters import CSVAdapter
         
-        adapter = MiningCSVAdapter(str(CONFIG.DATA_RAW_PATH))
+        adapter = CSVAdapter(str(CONFIG.DATA_RAW_PATH))
         gen = adapter.stream()
         chunk = next(gen)
         

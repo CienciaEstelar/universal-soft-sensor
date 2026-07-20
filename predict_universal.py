@@ -1,7 +1,7 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
 Script: predict_universal.py
-Proyecto: Arquitectura Minera 4.0
+Proyecto: Universal Soft-Sensor
 Versión: 1.2.1 — BUGFIX
 
 HISTORIAL:
@@ -14,11 +14,11 @@ HISTORIAL:
               AHORA: df_full = adapter.load_data()
 
         [FIX] Construcción de config_path frágil.
-              MiningDataAdapter espera el NOMBRE del config (str filename),
+              DataAdapter espera el NOMBRE del config (str filename),
               no un Path completo. El constructor resuelve la ruta internamente.
               ANTES: config_path = CONFIG.PROJECT_ROOT / "dataset_config.json"
-                     adapter = MiningDataAdapter(config_path)  ← TypeError
-              AHORA: adapter = MiningDataAdapter("dataset_config.json")
+                     adapter = DataAdapter(config_path)  ← TypeError
+              AHORA: adapter = DataAdapter("dataset_config.json")
 
 ═══════════════════════════════════════════════════════════════════════════════
 """
@@ -36,8 +36,8 @@ from rich.table import Table
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Módulos del Proyecto
-from core.inference_engine import MiningInference
-from core.adapters import MiningDataAdapter
+from core.inference_engine import InferenceEngine
+from core.adapters import DataAdapter
 from config.settings import CONFIG
 
 # Configuración de Consola
@@ -68,7 +68,7 @@ def ejecutar_simulacion():
     try:
         # 1. INICIALIZACIÓN DEL MOTOR
         with console.status("[bold cyan]Cargando Motor de Inteligencia Artificial..."):
-            engine = MiningInference()
+            engine = InferenceEngine()
         
         console.print(f"✔️  [dim]Modelo activo: {engine.model_path.name}[/dim]")
         console.print(f"✔️  [bold cyan]Algoritmo:[/bold cyan] {engine.model_wrapper.model_type}")
@@ -77,13 +77,13 @@ def ejecutar_simulacion():
         with console.status("[bold green]Accediendo a flujo de datos maestros..."):
             # [FIX] ANTES:
             #   config_path = CONFIG.PROJECT_ROOT / "dataset_config.json"
-            #   adapter = MiningDataAdapter(config_path)       ← Path object, no str filename
+            #   adapter = DataAdapter(config_path)       ← Path object, no str filename
             #   df_full = adapter.load_data(CONFIG.DATA_RAW_PATH)  ← TypeError: 1 arg extra
             #
-            # AHORA: MiningDataAdapter espera el nombre del archivo (str),
+            # AHORA: DataAdapter espera el nombre del archivo (str),
             #         la ruta se resuelve internamente en el constructor.
             #         load_data() no acepta argumentos — la ruta viene del JSON.
-            adapter = MiningDataAdapter("dataset_config.json")
+            adapter = DataAdapter("dataset_config.json")
             df_full = adapter.load_data()
         
         # 3. DEFINICIÓN DE LA VENTANA DE SIMULACIÓN

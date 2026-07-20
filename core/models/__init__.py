@@ -1,4 +1,4 @@
 """Modelos de Machine Learning para proceso minero."""
-from core.models.mining_gp_pro import MiningGP, ModelMetrics, TrainingArtifacts
+from core.models.gp_model import SoftSensorGP, ModelMetrics, TrainingArtifacts
 
-__all__ = ["MiningGP", "ModelMetrics", "TrainingArtifacts"]
+__all__ = ["SoftSensorGP", "ModelMetrics", "TrainingArtifacts"]

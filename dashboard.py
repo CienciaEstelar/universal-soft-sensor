@@ -1,7 +1,7 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
 Módulo: dashboard.py
-Proyecto: Arquitectura Minera 4.0 - HMI de Alta Fidelidad
+Proyecto: Universal Soft-Sensor - HMI de Alta Fidelidad
 Autor: Juan Galaz (Refactorizado por Gemini)
 Versión: 3.6.1 (Documented & Optimized)
 ═══════════════════════════════════════════════════════════════════════════════
@@ -30,8 +30,8 @@ import logging
 import time
 
 # --- IMPORTACIONES DE ARQUITECTURA CORE ---
-from core.inference_engine import MiningInference
-from core.adapters import MiningDataAdapter
+from core.inference_engine import InferenceEngine
+from core.adapters import DataAdapter
 from core.report_generator import ReportManager, ShiftReportData
 
 # =============================================================================
@@ -85,10 +85,10 @@ def get_system_core():
     adaptador de datos se carguen una sola vez en memoria (Patrón Singleton).
     
     Returns:
-        tuple: (MiningInference instance, MiningDataAdapter instance)
+        tuple: (InferenceEngine instance, DataAdapter instance)
     """
-    engine = MiningInference()
-    adapter = MiningDataAdapter("dataset_config.json")
+    engine = InferenceEngine()
+    adapter = DataAdapter("dataset_config.json")
     return engine, adapter
 
 # =============================================================================
@@ -107,7 +107,7 @@ def render_realtime_engine(engine, df_full, sim_air, target_goal):
     datos maestros cargados en caché. Esto reduce drásticamente el uso de CPU.
 
     Args:
-        engine (MiningInference): Motor de IA para predicciones.
+        engine (InferenceEngine): Motor de IA para predicciones.
         df_full (pd.DataFrame): Dataset completo para simular el flujo.
         sim_air (float): Factor de perturbación para el motor What-If.
         target_goal (float): KPI objetivo definido por el usuario.
