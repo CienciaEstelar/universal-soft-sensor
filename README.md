@@ -19,7 +19,7 @@
 
 Pipeline **agnóstico al dominio** que reemplaza mediciones lentas o costosas (análisis de laboratorio, inspecciones) mediante un **Soft-Sensor basado en IA**: predice variables críticas del proceso en tiempo casi real a partir de los datos de sensores existentes, con intervalos de confianza calibrados.
 
-**No está atado a ninguna industria.** El schema de validación física detecta la categoría de cada sensor por el nombre de la columna (regex declarativo), así que el mismo pipeline funciona con cualquier dataset de sensores cambiando solo la configuración (`config/dataset_config.json`):
+**No está atado a ninguna industria.** El schema de validación física detecta la categoría de cada sensor por el nombre de la columna (coincidencia por subcadena, no regex — decisión deliberada: sin exposición a ReDoS), así que el mismo pipeline funciona con cualquier dataset de sensores cambiando solo la configuración (`config/dataset_config.json`):
 
 | Dominio probado | Dataset | Qué predice |
 |---|---|---|
@@ -43,16 +43,23 @@ Preparado para integrarse con historiadores industriales (SCADA, PI System) y es
 ## 🎯 Capacidades del Sistema
 
 * Predicción de variables críticas del proceso (recovery, grade, silica, etc.)
-* Cuantificación de incertidumbre con intervalos de confianza calibrados
+* Cuantificación de incertidumbre con intervalos de predicción del GP (calibración PICP pendiente de validar — ver ROADMAP)
 * Diagnóstico automático de autocorrelación temporal
 * Detección y eliminación de data leakage por configuración declarativa (JSON)
 * Validación física universal: detecta categoría de cada sensor por nombre
 * Generación automática de reportes de auditoría (PDF)
 * Motor What-If para simulación de escenarios operativos
 
-**Métricas objetivo:**
-* R² ≥ 0.95
-* MAPE < 2%
+**Resultados verificados** (régimen sensor-only, artefactos en `results/verification/`):
+
+| Dominio | Métrica | Valor |
+|---|---|---|
+| ZeMA (condición del enfriador) | R² / MAE | **0.9998** / 0.39 🏆 |
+| NASA CMAPSS (RUL turbofan) | R² / RMSE | 0.593 / 50.2 ciclos |
+| AI4I 2020 (fallo binario) | — | fuera de alcance (clasificación) |
+
+> ℹ️ Las métricas dependen del régimen de evaluación: incluir rezagos del target infla
+> los números (cuasi-persistencia). Ver `paper/paper.tex` y `SECURITY_AUDIT.md`.
 
 ---
 
@@ -96,7 +103,7 @@ graph TD
 
 ## ✨ Características de Ingeniería
 
-* **Ingesta Universal**: Auto-detección de separador, encoding, formatos de fecha. Filtrado de columnas por patrones regex declarativos.
+* **Ingesta Universal**: Auto-detección de separador, encoding, formatos de fecha. Filtrado de columnas por coincidencia de subcadena declarativa (substring, no regex — evita ReDoS).
 
 * **Schema de Validación Física v2.0**: Pattern matching universal que detecta categoría (temperatura, porcentaje, flujo, pH, nivel, etc.) por nombre de columna. Soporta gold_recovery, AI4I2020, y cualquier dataset con nombres descriptivos.
 
@@ -187,8 +194,20 @@ universal-soft-sensor/
 
 ```bash
 pip install -e ".[dev]"
-pytest tests/ -v
+pytest tests/ -v          # incluye tests/test_security.py (regresión de seguridad)
 ```
+
+---
+
+## 🔒 Seguridad
+
+El pipeline pasó una auditoría hostil (red team) que cerró 7 vectores. Puntos clave para operar seguro:
+
+* **Modelos `.pkl` usan pickle** (ejecución de código al deserializar). `load()` exige un hash SHA-256 (sidecar `.sha256` generado al guardar): **no cargues modelos de origen no confiable**. Migración a `skops` en el roadmap.
+* **Guard anti-leakage**: features cuasi-idénticas al target se detectan y eliminan con aviso (modo estricto disponible).
+* **Validación de entrada** amistosa (target numérico, sin `inf`, varianza > 0) y contención de path traversal en el config.
+
+Detalle completo, PoCs y fixes: [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md).
 
 ---
 
