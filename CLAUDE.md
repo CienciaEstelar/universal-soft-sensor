@@ -43,10 +43,10 @@ The system follows a staged pipeline: **Ingest -> Validate -> Preprocess -> Trai
 
 ### Configuration Layer
 - `config/settings.py` — Single source of truth (`CONFIG` singleton). All paths, GP parameters, and the critical `DEFAULT_SUBSAMPLE_STEP` are centralized here. Modules import `from config.settings import CONFIG`. Supports `.env` overrides.
-- `config/dataset_config.json` — Declarative JSON defining dataset file, target column, include/exclude regex patterns for feature filtering, and data leakage prevention rules.
+- `config/dataset_config.json` — Declarative JSON defining dataset file, target column, include/exclude substring patterns for feature filtering (not regex — avoids ReDoS), and data leakage prevention rules.
 
 ### Core Pipeline
-- **Adapters** (`core/adapters/`) — Data ingestion layer. `UniversalAdapter` reads `dataset_config.json` and filters columns by regex patterns. `CSVAdapter` handles chunked CSV streaming. `DataAdapter` orchestrates the full ingestion flow.
+- **Adapters** (`core/adapters/`) — Data ingestion layer. `UniversalAdapter` reads `dataset_config.json` and filters columns by substring match (not regex). `CSVAdapter` handles chunked CSV streaming. `DataAdapter` orchestrates the full ingestion flow.
 - **Validation** (`core/validation/`) — `PhysicalSchema` uses pattern matching (not hardcoded column names) to detect physical variable categories (temperature, percentage, flow, pH, level) and enforce valid ranges. `PhysicalValidator` applies the schema.
 - **Preprocessor** (`core/preprocessor.py`) — Statistical cleaning: null imputation (ffill/bfill/interpolate), outlier detection, constant column removal.
 - **Pipeline** (`core/pipeline.py`) — `SoftSensorPipeline` orchestrates ETL with chunked processing, checkpointing, and Rich progress bars.
@@ -64,7 +64,7 @@ The system follows a staged pipeline: **Ingest -> Validate -> Preprocess -> Trai
 ## Key Design Decisions
 
 - **Subsample alignment**: The `DEFAULT_SUBSAMPLE_STEP` in `config/settings.py` must be the same for training and inference. Previously hardcoded differently in multiple files, now centralized. Never hardcode subsample values in individual modules.
-- **Universal schema**: The validation schema uses regex pattern matching on column names, not hardcoded column lists. This makes it work across different datasets (gold_recovery, AI4I2020, etc.) without code changes.
+- **Universal schema**: The validation schema uses substring pattern matching on column names, not hardcoded column lists. This makes it work across different datasets (gold_recovery, AI4I2020, etc.) without code changes.
 - **No shuffle**: Temporal ordering is preserved throughout. Train/test splits are sequential, not random.
 - **Dataset configuration is declarative**: New datasets are onboarded by editing `config/dataset_config.json`, not by modifying Python code. Note: the README references a `config/dataset_config.example.json` template that is not currently shipped — copy/adapt the existing `dataset_config.json` instead.
 

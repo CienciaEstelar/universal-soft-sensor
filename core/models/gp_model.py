@@ -76,6 +76,7 @@ USO BÁSICO:
 # ═══════════════════════════════════════════════════════════════════════════
 # IMPORTACIONES
 # ═══════════════════════════════════════════════════════════════════════════
+import os
 import sys
 import json
 import joblib
@@ -215,7 +216,8 @@ class SoftSensorGP:
         use_fallback_model: bool = True,
         remove_constant_features: bool = True,
         remove_correlated_features: bool = True,
-        correlation_threshold: float = 0.98
+        correlation_threshold: float = 0.98,
+        strict_leakage: bool = False  # [SECURITY V2] True → abortar si hay leakage feature↔target
     ):
         """
         Inicializa el Soft-Sensor.
@@ -263,6 +265,7 @@ class SoftSensorGP:
         self.remove_constant_features = remove_constant_features
         self.remove_correlated_features = remove_correlated_features
         self.correlation_threshold = correlation_threshold
+        self.strict_leakage = strict_leakage
         
         # Escaladores (se ajustan durante fit)
         self.scaler_X = RobustScaler()
@@ -337,17 +340,58 @@ class SoftSensorGP:
     # MÉTODOS DE PREPROCESAMIENTO
     # ═══════════════════════════════════════════════════════════════════════
     
+    def _drop_target_leakage(
+        self, X_df: pd.DataFrame, y_series: pd.Series, thresh: float = 0.999
+    ) -> pd.DataFrame:
+        """
+        [SECURITY V2] Detecta y elimina features que son copia (o cuasi-copia)
+        del target — la fuente #1 de R² inflado y fraudulento en ML industrial.
+
+        Calcula |corr(feature, target)| y elimina toda feature que supere
+        `thresh`. Emite un WARNING ruidoso (no silencioso) porque, aunque el
+        caso legítimo existe (p. ej. una réplica redundante de un sensor de
+        salida), un usuario debe SIEMPRE enterarse de que una de sus features
+        es prácticamente el target.
+
+        Se puede endurecer a "abortar" con self.strict_leakage=True.
+        """
+        if X_df.shape[1] == 0 or len(y_series) < 3:
+            return X_df
+        y = pd.Series(np.asarray(y_series, dtype=float).ravel(), index=X_df.index)
+        leaked = []
+        for col in X_df.columns:
+            try:
+                x = pd.to_numeric(X_df[col], errors="coerce")
+                if x.notna().sum() < 3 or x.std(skipna=True) == 0:
+                    continue
+                r = x.corr(y)
+                if pd.notna(r) and abs(r) >= thresh:
+                    leaked.append((col, float(r)))
+            except Exception:
+                continue
+        if leaked:
+            names = ", ".join(f"{c} (|r|={abs(r):.4f})" for c, r in leaked)
+            msg = (f"⚠️  LEAKAGE DETECTADO: {len(leaked)} feature(s) cuasi-idéntica(s) "
+                   f"al target y eliminada(s): {names}. Un R² alto SIN estas columnas "
+                   f"es el número honesto.")
+            self.console.print(f"[bold red]   {msg}[/bold red]")
+            logger.warning(msg)
+            if getattr(self, "strict_leakage", False):
+                raise ValueError(f"Leakage feature↔target (strict_leakage=True): {names}")
+            X_df = X_df.drop(columns=[c for c, _ in leaked])
+        return X_df
+
     def _remove_problematic_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Elimina features problemáticos automáticamente.
-        
+
         Criterios de eliminación:
         1. Features constantes (std < 1e-8): No aportan información
         2. Features altamente correlacionados (r > threshold): Redundantes
-        
+
         Args:
             df: DataFrame con features (sin el target)
-            
+
         Returns:
             DataFrame limpio sin features problemáticos
         """
@@ -486,7 +530,38 @@ class SoftSensorGP:
                 f"Target '{self.target_col}' no encontrado en el dataset.\n"
                 f"Columnas disponibles: {list(df.columns[:10])}..."
             )
-        
+
+        # ═══════════════════════════════════════════════════════════════════
+        # [SECURITY V5] Validación amistosa de entrada — atrapa datos corruptos
+        # ANTES del modelo, con mensajes claros en vez de stacktraces crípticos
+        # de sklearn/RobustScaler aguas abajo.
+        # ═══════════════════════════════════════════════════════════════════
+        _yt = pd.to_numeric(df[self.target_col], errors="coerce")
+        if _yt.notna().sum() == 0:
+            raise ValueError(
+                f"El target '{self.target_col}' no es numérico (no se pudo "
+                f"convertir ningún valor a número). Un soft-sensor de regresión "
+                f"requiere un target numérico continuo."
+            )
+        _MIN_FILAS = 10
+        _n_validas = df.dropna(subset=[self.target_col]).shape[0]
+        if _n_validas < _MIN_FILAS:
+            raise ValueError(
+                f"Datos insuficientes: solo {_n_validas} fila(s) con target válido "
+                f"(mínimo {_MIN_FILAS}). Revisa el CSV, el split o los NaN del target."
+            )
+        if np.isinf(_yt.to_numpy(dtype=float, na_value=np.nan)).any():
+            raise ValueError(
+                f"El target '{self.target_col}' contiene valores infinitos (inf). "
+                f"Limpia o acota el target antes de entrenar."
+            )
+        if _yt.std(skipna=True) == 0:
+            raise ValueError(
+                f"El target '{self.target_col}' es CONSTANTE (varianza cero): no "
+                f"hay nada que aprender ni métrica de regresión definida. Revisa el "
+                f"target o el rango de datos seleccionado."
+            )
+
         # ═══════════════════════════════════════════════════════════════════
         # DIAGNÓSTICO DE AUTOCORRELACIÓN
         # ═══════════════════════════════════════════════════════════════════
@@ -564,7 +639,14 @@ class SoftSensorGP:
         drop_cols = [self.target_col]  # ✅ Solo el target, nada hardcodeado
         X_df = df.drop(columns=[c for c in drop_cols if c in df.columns])
         # ═══════════════════════════════════════════════════════════════════
-        
+
+        # [SECURITY V2] Guard anti-leakage feature↔target. Una feature que es
+        # copia (o cuasi-copia) del target produce R²≈1.0 FALSO, incluso con
+        # target impredecible. El filtro de correlacionados de abajo solo mira
+        # feature↔feature, NO feature↔target, así que una columna que replica
+        # el target sobrevive. Aquí se detecta y se elimina con aviso ruidoso.
+        X_df = self._drop_target_leakage(X_df, y_series)
+
         # Eliminar features problemáticos (constantes, correlacionados)
         X_df = self._remove_problematic_features(X_df)
         
@@ -813,13 +895,19 @@ class SoftSensorGP:
         self.console.print(table)
         
         # Fase 3: Entrenar con datos limitados (GP es O(n³))
+        # [SECURITY V6] Muestreo ALEATORIO seedeado en vez de por stride fijo.
+        # El stride (np.arange(0, n, step)) puede aliasar con estructura
+        # periódica del dataset (p. ej. ciclos de un banco de pruebas) y sesgar
+        # la muestra. Un muestreo aleatorio con random_state es determinista
+        # (reproducible) pero robusto a esa periodicidad. Se ordena para
+        # preservar el orden temporal relativo dentro de la submuestra.
         if len(X) > max_samples:
-            step = max(1, len(X) // max_samples)
-            indices = np.arange(0, len(X), step)[:max_samples]
+            rng = np.random.default_rng(self.random_state)
+            indices = np.sort(rng.choice(len(X), size=max_samples, replace=False))
             X_train, y_train = X[indices], y[indices]
             self.console.print(
                 f"[dim]Entrenando con {len(X_train):,} de {len(X):,} muestras "
-                f"(límite de memoria)[/dim]"
+                f"(muestreo aleatorio seedeado, límite de memoria O(n³))[/dim]"
             )
         else:
             X_train, y_train = X, y
@@ -881,20 +969,39 @@ class SoftSensorGP:
         Returns:
             ModelMetrics con R², RMSE, MAE, MAPE
         """
-        # MAPE solo donde y_true != 0 para evitar división por cero
+        y_true = np.asarray(y_true, dtype=float).ravel()
+        y_pred = np.asarray(y_pred, dtype=float).ravel()
+
+        # [SECURITY V3] R² es indefinido si el target de test tiene varianza
+        # cero (constante): SS_tot = 0 y r2_score puede devolver 1.0 o 0.0,
+        # ambos engañosos. En ese caso NO se reporta un número que parezca
+        # bueno — se devuelve NaN y se avisa, igual que no se reporta una
+        # métrica sobre un test sin soporte.
+        if np.var(y_true) == 0:
+            msg = ("⚠️  Target de test con varianza CERO (constante): R² es "
+                   "matemáticamente indefinido. Se reporta NaN, no un valor "
+                   "engañoso. Revisa el split y el target.")
+            self.console.print(f"[bold red]   {msg}[/bold red]")
+            logger.warning(msg)
+            r2 = float("nan")
+        else:
+            r2 = r2_score(y_true, y_pred)
+
+        # MAPE solo donde y_true != 0. Si TODOS son cero, MAPE es indefinido:
+        # se devuelve NaN (no 0.0, que parecería "predicción perfecta").
         mask = y_true != 0
         if mask.any():
-            mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+            mape = float(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100)
         else:
-            mape = 0.0
-        
+            mape = float("nan")
+
         self.metrics = ModelMetrics(
-            r2=r2_score(y_true, y_pred),
+            r2=r2,
             rmse=np.sqrt(mean_squared_error(y_true, y_pred)),
             mae=mean_absolute_error(y_true, y_pred),
             mape=mape
         )
-        
+
         return self.metrics
     
     # ═══════════════════════════════════════════════════════════════════════
@@ -937,17 +1044,74 @@ class SoftSensorGP:
         )
         
         joblib.dump(artifacts, filepath)
+
+        # [SECURITY V1] Sidecar con hash SHA-256 para verificar integridad y
+        # procedencia al cargar. NO elimina el riesgo de fondo (pickle permite
+        # ejecución de código arbitrario), pero permite detectar un .pkl
+        # alterado/no confiable antes de deserializarlo. Ver load() y
+        # SECURITY_AUDIT.md (roadmap de migración a skops).
+        try:
+            import hashlib
+            digest = hashlib.sha256(Path(filepath).read_bytes()).hexdigest()
+            Path(filepath + ".sha256").write_text(digest + "\n")
+        except Exception as e:
+            logger.warning("No se pudo escribir el sidecar .sha256: %s", e)
+
         self.console.print(f"[green]💾 Modelo guardado: {filepath}[/green]")
-        
+
         return filepath
     
-    def load(self, filepath: str) -> None:
+    def load(self, filepath: str, expected_sha256: str = None,
+             trust_unsigned: bool = None) -> None:
         """
         Carga modelo y artefactos desde disco.
-        
+
+        [SECURITY V1] ADVERTENCIA: los .pkl usan pickle, que ejecuta código
+        arbitrario al deserializar. Cargar un modelo de origen NO CONFIABLE es
+        equivalente a ejecutar un binario desconocido. Defensas:
+          - Si existe un sidecar `<filepath>.sha256` (o se pasa `expected_sha256`),
+            se verifica la integridad ANTES de deserializar; si no coincide,
+            se aborta.
+          - Si NO hay hash de referencia, se emite un WARNING y solo se procede
+            si `trust_unsigned=True` (o la env SOFTSENSOR_TRUST_UNSIGNED_PKL=1).
+
         Args:
             filepath: Ruta al archivo .pkl
+            expected_sha256: Hash esperado (si None, se busca el sidecar .sha256)
+            trust_unsigned: Permitir cargar sin hash de referencia (default: False)
         """
+        import hashlib
+        p = Path(filepath)
+        raw = p.read_bytes()
+        actual = hashlib.sha256(raw).hexdigest()
+
+        ref = expected_sha256
+        sidecar = Path(str(filepath) + ".sha256")
+        if ref is None and sidecar.exists():
+            ref = sidecar.read_text().strip().split()[0]
+
+        if ref is not None:
+            if actual != ref:
+                raise ValueError(
+                    f"Hash SHA-256 del modelo NO coincide con el esperado.\n"
+                    f"  esperado: {ref}\n  actual:   {actual}\n"
+                    f"El archivo pudo ser alterado o no es de confianza. Carga abortada."
+                )
+        else:
+            if trust_unsigned is None:
+                trust_unsigned = os.getenv("SOFTSENSOR_TRUST_UNSIGNED_PKL", "0") == "1"
+            warn = ("⚠️  Cargando un .pkl SIN hash de referencia. pickle ejecuta "
+                    "código arbitrario: solo cargá modelos que vos mismo generaste. "
+                    "Ver SECURITY_AUDIT.md.")
+            self.console.print(f"[bold yellow]   {warn}[/bold yellow]")
+            logger.warning(warn)
+            if not trust_unsigned:
+                raise ValueError(
+                    "Carga de .pkl sin verificación de hash bloqueada por seguridad. "
+                    "Pasá expected_sha256=..., generá el sidecar .sha256, o forzá con "
+                    "trust_unsigned=True / SOFTSENSOR_TRUST_UNSIGNED_PKL=1 si confiás en el origen."
+                )
+
         artifacts: TrainingArtifacts = joblib.load(filepath)
         
         self.model = artifacts.model

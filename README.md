@@ -19,7 +19,7 @@
 
 Pipeline **agnóstico al dominio** que reemplaza mediciones lentas o costosas (análisis de laboratorio, inspecciones) mediante un **Soft-Sensor basado en IA**: predice variables críticas del proceso en tiempo casi real a partir de los datos de sensores existentes, con intervalos de confianza calibrados.
 
-**No está atado a ninguna industria.** El schema de validación física detecta la categoría de cada sensor por el nombre de la columna (regex declarativo), así que el mismo pipeline funciona con cualquier dataset de sensores cambiando solo la configuración (`config/dataset_config.json`):
+**No está atado a ninguna industria.** El schema de validación física detecta la categoría de cada sensor por el nombre de la columna (coincidencia por subcadena, no regex — decisión deliberada: sin exposición a ReDoS), así que el mismo pipeline funciona con cualquier dataset de sensores cambiando solo la configuración (`config/dataset_config.json`):
 
 | Dominio probado | Dataset | Qué predice |
 |---|---|---|
@@ -96,7 +96,7 @@ graph TD
 
 ## ✨ Características de Ingeniería
 
-* **Ingesta Universal**: Auto-detección de separador, encoding, formatos de fecha. Filtrado de columnas por patrones regex declarativos.
+* **Ingesta Universal**: Auto-detección de separador, encoding, formatos de fecha. Filtrado de columnas por coincidencia de subcadena declarativa (substring, no regex — evita ReDoS).
 
 * **Schema de Validación Física v2.0**: Pattern matching universal que detecta categoría (temperatura, porcentaje, flujo, pH, nivel, etc.) por nombre de columna. Soporta gold_recovery, AI4I2020, y cualquier dataset con nombres descriptivos.
 
