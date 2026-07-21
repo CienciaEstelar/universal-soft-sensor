@@ -81,3 +81,6 @@ htmlcov/
 build/
 dist/
 .kaggle_token
+paper/*.aux
+paper/*.log
+paper/*.out
