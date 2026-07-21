@@ -56,7 +56,7 @@ The system follows a staged pipeline: **Ingest -> Validate -> Preprocess -> Trai
 - `train_universal.py` — Training orchestrator. Uses `DataAdapter` for ingestion, then `SoftSensorGP` for training. Creates temp files cleaned up via try/finally.
 
 ### Inference & UI
-- `core/inference_engine.py` — `MiningInference` facade: loads saved models, generates features at inference time, de-scales predictions. Supports single-point and rolling series prediction.
+- `core/inference_engine.py` — `InferenceEngine` facade: loads saved models, generates features at inference time, de-scales predictions. Supports single-point and rolling series prediction.
 - `predict_universal.py` — Inference simulation script.
 - `dashboard.py` — Streamlit HMI with reactive inference and What-If scenario engine.
 - `core/report_generator.py` — PDF audit report generation.
@@ -72,16 +72,50 @@ The system follows a staged pipeline: **Ingest -> Validate -> Preprocess -> Trai
 
 Tests use synthetic data fixtures defined in `tests/conftest.py`. Custom markers: `integration`, `validation`, `schema`, `adapter`. The `trained_model` fixture is expensive (trains a real GP) — use sparingly.
 
-## Validación Cross-Domain — 2026-07-20
+## Validación Cross-Domain — 2026-07-20 (VERIFICADA)
 
-Se probó el pipeline (sin modificaciones) en 3 benchmarks externos de mantenimiento
-predictivo para validar la arquitectura universal. Resultados:
+> ⚠️ **Los números de la versión original de esta sección estaban inflados** por
+> leakage autorregresivo (rezagos del target) y por un split degenerado en ZeMA.
+> La auditoría de reproducibilidad los corrigió. Distinguir **dos regímenes**:
+> *sensor-only* (solo sensores; desplegable) vs *AR* (con rezagos del target;
+> cuasi-persistencia en prognostics). Artefactos: `results/verification/`. Detalle
+> completo: `paper/paper.tex` y `SECURITY_AUDIT.md`.
 
-| Dataset | Tipo | R² | Algoritmo | Baseline |
+Resultados **verificados** (régimen sensor-only, el honesto):
+
+| Dataset | Tipo | R² sensor-only | R² con AR (inflado) | Modelo |
 |---|---|---|---|---|
-| 🛩️ NASA CMAPSS FD001 | Regresión RUL (turbofan) | **0.8839** 🏆 | GP (Matérn ν=1.5) | **-14% RMSE** vs SVR del notebook ref |
-| 🔧 ZeMA Hydraulic Cooler | Regresión (3 niveles) | 0.6795 👍 | GradientBoosting | MAE=0.94 en rango [3,100] — clasificación perfecta |
-| ⚙️ AI4I 2020 | Clasificación binaria | 0.1176 ⚠️ | GradientBoosting | Pipeline NO diseñado para clasificación; se necesita extender |
+| 🛩️ NASA CMAPSS FD001 | Regresión RUL (turbofan) | **0.593** (RMSE 50.2) | 0.873 (cuasi-persistencia) | GP (Matérn ν=1.5) |
+| 🔧 ZeMA Hydraulic Cooler | Regresión (3 niveles), split estratificado | **0.9998** (MAE 0.39) 🏆 | 0.994 | GradientBoosting (fallback) |
+| ⚙️ AI4I 2020 | Clasificación binaria (fuera de alcance) | 0.169 ⚠️ | 0.266 | GradientBoosting (fallback) |
+
+**Dos trampas metodológicas documentadas** (con artefactos de control): (1) split
+secuencial ingenuo en ZeMA → test de una sola clase, R² indefinido; (2) rezagos
+del target en CMAPSS → R² aparente 0.873 que es cuasi-persistencia, no señal real.
+
+### Validación de negocio 2026-07-20 — minería real (4 datasets nuevos)
+
+Se probó el pipeline contra datos REALES de proceso minero para responder si hay
+caso de negocio. Mapa completo en `results/verification/FINDINGS.md`. Resumen:
+
+- **Flotación de hierro (Kaggle, 737k filas):** la ley del concentrado (% sílica)
+  NO es sensor-predecible. A resolución horaria honesta, persistencia R²=0.61 y los
+  sensores no la superan a ningún horizonte (1-24h). El R²>0.9 de la literatura
+  sobre este dataset es leakage del lag del target. Detectada además la trampa de
+  persistencia inflada (target de lab repetido ~174 filas/hora → R²=0.998 fila-a-fila
+  falso).
+- **GeoMet cobre (Zenodo, geometalúrgico):** SÍ hay edge robusto. Recuperación LCT
+  desde química+dureza → **R²=0.33, permutation p=0.005, GroupKFold por HOLEID,
+  independiente de la ley de Cu (r=0.07)**. Modesto pero real. La dureza (F80/P80)
+  es la que destraba la predicción — coherente físicamente. `xr` daba R²=0.77 pero
+  es tautológico (r=0.88 con la ley de Cu de entrada) — descartado con el chequeo
+  de tautología.
+- **SRU refinería:** sensor-only instantáneo R²=−0.47 → el pipeline **necesita lags
+  de INPUTS** (no solo del target). Deuda técnica #1 del ROADMAP.
+
+**Veredicto de negocio:** el caso vive en recuperación de cobre (modesto pero
+verificado con rigor de paper), no en la ley de concentrado. Scripts:
+`run_flotation_*.py`, `run_geomet_*.py` en la raíz.
 
 ### Assets generados
 
@@ -99,7 +133,13 @@ ai4i-2020-predictive-maintenance.ipynb ← Notebook referencia (jiejiea)
 
 ### Lecciones aprendidas
 
-- **GP brilla en regresión temporal**: CMAPSS R²=0.88, supera SVR baseline sin ajustes
+- **El régimen de evaluación importa tanto como el modelo**: con rezagos del target,
+  CMAPSS "sube" a R²=0.87 pero es cuasi-persistencia (leakage AR). Sin ellos
+  (sensor-only, desplegable), R²=0.59 — moderado y honesto. Para prognostics de RUL,
+  deshabilitar `add_lag_features`/`add_diff_features`.
+- **GP funciona en regresión temporal, no es SOTA**: CMAPSS sensor-only R²=0.59
+  (los métodos profundos especializados van a RMSE 12-16; nosotros ~50). Es baseline
+  honesto, no récord.
 - **Fallback automático funciona**: ZeMA GP→GB, AI4I GP→GB, sin intervención manual
 - **Targets discretos (3-5 niveles)**: GP no converge bien (ZeMA R²=0.30 en CV), pero GB compensa
 - **Clasificación binaria**: El pipeline no está diseñado para esto; R² es métrica incorrecta. Para AI4I se necesitaría: one-hot encoding de categóricas + modelos de clasificación + feature engineering de interacciones (Power, Power wear, Temp diff)
@@ -117,6 +157,21 @@ echo 'DATA_RAW_PATH=data/nasa_cmaps_fd001.csv\nGP_TARGET=RUL\nGP_MAX_SAMPLES=500
 python -m core.pipeline && python train_universal.py
 # Restaurar: cp config/dataset_config.json.bak config/dataset_config.json && rm .env
 ```
+
+## Seguridad / Hardening — 2026-07-20
+
+Auditoría hostil (red team) cerró 7 vectores. Ver `SECURITY_AUDIT.md` (detalle + PoCs)
+y `tests/test_security.py` (11 tests de regresión). Reglas para no re-romper:
+
+- **No cargar `.pkl` de origen no confiable**: `SoftSensorGP.load()` exige hash SHA-256
+  (sidecar `.sha256` que `save()` genera). pickle = ejecución de código arbitrario.
+- **Guard anti-leakage** (`_drop_target_leakage`): features con `|corr|>0.999` vs target
+  se eliminan + warn; `strict_leakage=True` aborta. No desactivar sin motivo.
+- **Métricas degeneradas**: `evaluate()` devuelve NaN (no 1.0/0.0) si el test tiene
+  varianza cero. No "arreglar" para que dé un número.
+- **Validación de entrada** en `load_data` (numérico/inf/min-filas/varianza) y contención
+  de path traversal en el adapter. No bypassear.
+- **Cap del GP** usa muestreo aleatorio seedeado (determinista, sin aliasing).
 
 ## Tool Configuration
 
