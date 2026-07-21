@@ -20,6 +20,7 @@ Responsabilidades:
 
 import json
 import logging
+import os
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Set
@@ -57,9 +58,21 @@ class UniversalAdapter:
         self.config = self._load_config()
         
         # 3. Construir ruta al archivo de datos CSV
+        # [SECURITY V4] Contención anti path-traversal: el `filename` viene del
+        # config (potencialmente de un tercero). Sin esto, filename=
+        # "../../../../etc/passwd" resolvería FUERA de data/ y permitiría leer
+        # archivos arbitrarios del sistema. Se exige que el path resuelto quede
+        # dentro de DATA_DIR.
         filename = self.config["files"]["filename"]
-        self.data_path = DATA_DIR / filename
-        
+        data_root = DATA_DIR.resolve()
+        candidate = (DATA_DIR / filename).resolve()
+        if not str(candidate).startswith(str(data_root) + os.sep) and candidate != data_root:
+            raise ValueError(
+                f"filename '{filename}' escapa de la carpeta data/ "
+                f"(resuelto: {candidate}). Path traversal bloqueado."
+            )
+        self.data_path = candidate
+
         logger.info(f"🔧 Adaptador Universal iniciado con reglas de: {config_filename}")
 
     def _load_config(self) -> Dict:

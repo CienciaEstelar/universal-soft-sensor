@@ -1,128 +1,86 @@
-# ROADMAP — Proyecto Minero 4.0
+# ROADMAP — Universal Soft-Sensor
 
-> Prioridades, fuentes de datos reales y pasos hacia producción.
-> Actualizado: 2026-05-10.
+> Prioridades y estado hacia producción.
+> Actualizado: 2026-07-20 (post rename + validación cross-domain + hardening de seguridad).
 
 ---
 
-## 1. Datasets reales — dónde conseguirlos
+## 0. Estado actual (qué YA está hecho)
 
-El sistema fue diseñado para procesar datos de sensores de plantas de flotación,
-pero nunca se ha probado con datos reales. Las métricas actuales (R²=0.9945,
-MAPE=3.25%) provienen de un dataset sintético.
+- ✅ **Rename** de `proyecto_minero_4.0` → `universal-soft-sensor` (pipeline agnóstico al dominio).
+- ✅ **Validación cross-domain con datos reales** (NASA CMAPSS, ZeMA Hydraulic, AI4I 2020),
+  con artefactos de reproducción en `results/verification/`. Publicada como paper
+  (`paper/paper.tex`, DOI Zenodo). Números **honestos y verificados**, con la distinción
+  sensor-only vs autorregresivo y las dos trampas metodológicas documentadas.
+- ✅ **Hardening de seguridad** (7 vectores de auditoría hostil cerrados, ver
+  `SECURITY_AUDIT.md` + `tests/test_security.py`): leakage feature↔target, RCE por pickle,
+  métricas degeneradas, path traversal, validación de entrada, muestreo del cap GP, doc.
+- ✅ **Console scripts** `softsensor-*` en `pyproject.toml` (antes `mining-*`).
 
-### Dataset principal (ya referenciado en el código)
+---
 
-**"Quality Prediction in a Mining Process" — Kaggle**
+## 1. Datasets
 
-- URL: https://www.kaggle.com/datasets/edumagalhaes/quality-prediction-in-a-mining-process
-- Columnas: ~737k filas, 23 columnas de sensores + 2 de calidad (iron concentrate, silica concentrate)
-- Frecuencia: datos reales de planta, intervalo ~20s
-- Target default del sistema: `% Silica Concentrate` y `% Iron Concentrate`
-- Archivo esperado por `settings.py`: `MiningProcess_Flotation_Plant_Database.csv`
-- **Este es el dataset para el que se diseñó el sistema.**
+### Cross-domain (ya validados, en `data/`)
+- NASA CMAPSS FD001 (turbofan RUL) — regresión temporal.
+- ZeMA Hydraulic Systems (condición del enfriador) — regresión multinivel.
+- AI4I 2020 (fallo de máquina) — clasificación binaria, fuera del alcance actual.
 
-Pasos para usarlo:
-```bash
-# 1. Descargar de Kaggle
-# 2. Colocar en data/
-mv MiningProcess_Flotation_Plant_Database.csv data/
-# 3. Ejecutar pipeline
-python -m tools.scan_schema
-python -m core.pipeline
-python train_universal.py
-```
+### Caso de origen (flotación minera) — opcional, retrocompat
+- **"Quality Prediction in a Mining Process"** (Kaggle): ~737k filas, sensores de planta.
+  El default de `settings.py` sigue apuntando a `MiningProcess_Flotation_Plant_Database.csv`
+  por retrocompatibilidad. Override con env `DATA_RAW_PATH` (alias legado `MINING_DATA_RAW_PATH`).
 
-### Datasets alternativos para validación cruzada
-
+### Candidatos para ampliar la evidencia
 | Dataset | Fuente | Utilidad |
 |---|---|---|
-| AI4I 2020 Predictive Maintenance | UCI / Kaggle | Probar el adaptador universal con sensores de distinta nomenclatura |
-| Condition Monitoring of Hydraulic Systems | UCI | Series temporales multivariantes con fallas reales |
-| SECOM Manufacturing | UCI | 1567 filas, 590 features — prueba de estrés para el GP (fuerza fallback a GBR) |
-| Tennessee Eastman Process | Harvard Dataverse | Benchmark industrial clásico, simulación de planta química |
+| CMAPSS FD002–FD004 | NASA | Múltiples modos de falla / condiciones — fortalece la evidencia de RUL |
+| SECOM Manufacturing | UCI | 590 features — stress-test del fallback a GBR |
+| Tennessee Eastman Process | Harvard Dataverse | Benchmark industrial clásico |
 
 ---
 
-## 2. Hallazgos de auditoría pendientes (priorizados por esfuerzo/retorno)
+## 2. Pendientes prioritarios (post-validación)
 
-### Sprint 1 — Bajo esfuerzo, alto retorno (1-2 horas cada uno)
-
-| Orden | ID | Tarea | Archivo(s) |
-|---|---|---|---|
-| 1 | F4-01 | Crear `Makefile` con target `all: scan pipeline train predict` | raíz |
-| 2 | F1-04 | Crear `.env.example` y `config/dataset_config.example.json` | raíz, config/ |
-| 3 | F4-04 | Sidecar JSON con metadatos de entrenamiento junto a cada `.pkl` | `mining_gp_pro.py` |
-| 4 | F3-01 | Reemplazar `bare except` en Optuna por excepciones específicas | `mining_gp_pro.py:672` |
-| 5 | F4-03 | Reemplazar `np.random.seed(42)` global por `default_rng` local | `preprocessor.py:345` |
-
-### Sprint 2 — Esfuerzo medio (2-4 horas cada uno)
-
-| Orden | ID | Tarea |
+### Prioridad alta — cierran deuda científica y de producto
+| ID | Tarea | Nota |
 |---|---|---|
-| 6 | F3-03 | Migrar a logging estructurado: `console.print` → `logger.info` en módulos core |
-| 7 | F2-07 | Eliminar rama de subsampling del pipeline (default=1 la neutraliza, pero sigue viva) |
-| 8 | F2-04 | Restringir diagnóstico de autocorrelación a porción de train solamente |
-| 9 | F3-07 | Documentar o consolidar `load_data`/`stream` en `_FileModeAdapter` vs `MiningDataAdapter` |
+| **P0** | **Feature engineering de lags de INPUTS** (no solo del target) | 🔥 destapado por SRU y flotación: el pipeline solo lagea el target; procesos dinámicos con retardo de residencia necesitan historia de las ENTRADAS. Es el gap técnico que más limita el uso real. |
+| P0b | **GroupKFold / splits con grupos** | evita el leakage por grupo (casi infló GeoMet a 0.93 falso); necesario para datos geometalúrgicos/por-lote |
+| P1 | **Soporte de clasificación** (RF/XGBoost/SVC + one-hot automático + métricas F1/AUROC) | desbloquea AI4I y todo target binario/categórico |
+| P2 | **Baselines naive + permutation test** reportados junto a cada métrica | aísla señal real de autocorrelación/leakage; ya probado a mano (`run_geomet_rigor.py`), falta integrarlo al pipeline |
+| P3 | **Calibración de incertidumbre** (PICP / Sharpness) de los intervalos del GP | argumento de venta clave del GP, hoy sin validar |
+| P4 | **Migrar `.pkl` → `skops`** (fix de raíz del RCE, ver V1 en SECURITY_AUDIT) | el hash SHA-256 ya mitiga, skops elimina |
 
-### Sprint 3 — Refactors mayores
+### Prioridad media — deuda técnica (del audit original, aún válida)
+| ID | Tarea |
+|---|---|
+| F2-04 | Restringir el diagnóstico de autocorrelación a la porción de train |
+| F2-06 | Reorden del pipeline: `load raw → split → FE causal → scale` |
+| F3-01 | Reemplazar `bare except` en el objetivo de Optuna por excepciones específicas |
+| F3-03 | Logging estructurado (`console.print` → `logger.info`) en módulos core |
+| F2-07 | Eliminar la rama de subsampling muerta del pipeline |
 
-| Orden | ID | Tarea |
-|---|---|---|
-| 10 | F2-06 | Reorden del pipeline: `load raw → split → FE causal → scale` |
-| 11 | F4-05 | Eliminación completa de subsampling (depende de F2-07) |
+### Prioridad baja — DX / onboarding
+- `Makefile` end-to-end (`scan`, `pipeline`, `train`, `predict`, `test`, `lint`).
+- `config/dataset_config.example.json` (template sanitizado).
+- Pre-commit hooks anti-leakage (prohibir `y.diff`/`y.rolling` sin `shift(1)` sobre el target).
 
 ---
 
 ## 3. Infraestructura faltante
 
-- [ ] **`.env.example`** — Template con `MINING_DATA_RAW_PATH=`, `GP_TARGET=`, `SUBSAMPLE_STEP=`, etc.
-- [ ] **`config/dataset_config.example.json`** — Template sanitizado del config actual
-- [ ] **`Makefile`** — Targets: `all`, `scan`, `pipeline`, `train`, `predict`, `dashboard`, `test`, `lint`, `clean`
-- [ ] **CI/CD** — GitHub Actions: pytest + ruff + black --check + mypy en cada PR
-- [ ] **`mining-train` y `mining-predict`** en `[project.scripts]` de `pyproject.toml`
-- [ ] **Pre-commit hooks** — Prevenir regresiones de leakage (prohibir `y.diff`/`y.rolling` sin `shift(1)` cuando el operando es target)
+- [ ] **CI/CD** — GitHub Actions: `pytest` (incl. `test_security.py`) + `ruff` + `black --check` en cada PR.
+- [ ] **`.env.example`** actualizado (`DATA_RAW_PATH`, `GP_TARGET`, `GP_MAX_SAMPLES`, `GP_TRIALS`).
+- [ ] **Sidecar de metadatos** JSON de entrenamiento junto a cada modelo (complementa el `.sha256` ya existente).
+- [ ] **Dashboard** con datos vivos (hoy simulación).
 
 ---
 
-## 4. Fases hacia producción
+## 4. Notas de integridad (no re-romper)
 
-### Fase 1 — Validación con datos reales (ahora)
-- Descargar dataset Kaggle
-- Ejecutar pipeline completo
-- Comparar métricas contra baseline naive
-- Publicar resultados reales (los que el sistema obtiene, no sintéticos)
-
-### Fase 2 — Deuda técnica crítica (Sprint 1 + 2)
-- Completar los 9 hallazgos rápidos
-- Actualizar versiones (unificar 1.1.0 en `core/__init__.py`)
-- Eliminar `AUDIT_REPORT.md` del repo local (ya fue borrado en GitHub)
-
-### Fase 3 — CI/CD + templates
-- GitHub Actions con test suite automática
-- Templates de configuración para onboarding
-- Makefile end-to-end
-
-### Fase 4 — Madurez industrial
-- Sidecar JSON con metadatos en cada artefacto
-- Logging estructurado a archivo
-- Tests de integración con dataset real
-- Dashboard con datos vivos (no solo simulación)
-
----
-
-## 5. Commits sugeridos (orden)
-
-```
-1. chore: sync with GitHub (delete AUDIT_REPORT.md, bump version in core/__init__.py)
-2. feat: add ROADMAP.md with dataset sources and priorities
-3. feat: add .env.example and dataset_config.example.json templates
-4. feat: add Makefile with end-to-end targets
-5. fix: replace bare except in Optuna objective (F3-01)
-6. fix: replace global np.random.seed with local Generator (F4-03)
-7. feat: add sidecar JSON metadata alongside model .pkl (F4-04)
-8. refactor: restrict autocorrelation diagnosis to train split (F2-04)
-9. refactor: remove subsample branch from pipeline (F2-07)
-10. feat: add mining-train and mining-predict console scripts
-11. feat: add GitHub Actions CI workflow
-```
+- **Régimen de evaluación**: para prognostics (RUL), `add_lag_features`/`add_diff_features`
+  deben ir en `False` — los rezagos del target inflan la métrica (cuasi-persistencia).
+- **Splits**: por unidad (CMAPSS), estratificado por clase (ZeMA). Verificar SIEMPRE que
+  el test tenga varianza > 0 antes de reportar (el guard V3 ya lo fuerza).
+- **Modelos**: no cargar `.pkl` de origen no confiable. El `load()` exige hash SHA-256.

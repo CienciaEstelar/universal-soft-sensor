@@ -1,0 +1,8 @@
+Pipeline de soft-sensing universal para prognosis industrial validado en múltiples dominios. Combina Gaussian Processes (GP) con kernel Matérn y fallback automático a Gradient Boosting. Opera sin modificaciones de código en dominios industriales distintos. Todas las métricas provienen de corridas verificadas con artefactos de reproducción incluidos en el repositorio (results/verification/).
+
+El sistema se validó en tres benchmarks:
+- NASA CMAPSS FD001 (turbofan RUL): R² = 0.593 sensor-only (RMSE 50.2 ciclos) — desempeño moderado, baseline honesto. Se cuantifica además la inflación autorregresiva por rezagos del target (R² aparente 0.873 = cuasi-persistencia).
+- ZeMA Hydraulic Systems (condición del enfriador): R² = 0.9998, MAE = 0.39 sobre rango 3-100 (sensor-only, split estratificado) — clasificación esencialmente perfecta, replicando el paper original. Se documenta que el split secuencial ingenuo es degenerado (test monoclase).
+- AI4I 2020 (fallo de máquina): expone la limitación actual del pipeline como regresor (clasificación binaria no soportada) — resultado negativo informativo que delimita la frontera de aplicabilidad.
+
+Arquitectura: ingesta declarativa (JSON) → validación física por pattern matching → feature engineering temporal → GP con fallback automático a GradientBoosting (activación verificada de forma independiente en 2 de 3 benchmarks). Código abierto AGPL-3.0.
