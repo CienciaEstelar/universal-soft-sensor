@@ -1,0 +1,8 @@
+{
+  "horas": 4097,
+  "features_base": 105,
+  "baseline_media": -0.0011,
+  "baseline_persist": 0.6101,
+  "modelo_nowcast_r2": 0.0794,
+  "modelo_inputlags_r2": 0.0387
+}
