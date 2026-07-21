@@ -21,11 +21,15 @@ Pipeline **agnóstico al dominio** que reemplaza mediciones lentas o costosas (a
 
 **No está atado a ninguna industria.** El schema de validación física detecta la categoría de cada sensor por el nombre de la columna (coincidencia por subcadena, no regex — decisión deliberada: sin exposición a ReDoS), así que el mismo pipeline funciona con cualquier dataset de sensores cambiando solo la configuración (`config/dataset_config.json`):
 
-| Dominio probado | Dataset | Qué predice |
+| Dominio probado | Qué predice | Resultado honesto (verificado) |
 |---|---|---|
-| ⚒️ Flotación minera (caso de origen) | Quality Prediction in a Mining Process (Kaggle) | % sílica / % hierro en concentrado |
-| ⚙️ Mantenimiento de máquinas rotativas | AI4I 2020 (UCI) | Fallo de máquina (torque, rpm, tool wear, TWF/HDF/PWF/OSF) |
-| 🧩 Cualquier otro | Tu CSV con nombres de columna descriptivos | Lo que declares como `target_column` |
+| 🔧 ZeMA hidráulico | condición del enfriador | ✅ **R²=0.9998** (sensor-only, split estratificado) |
+| ⛏️ GeoMet cobre | recuperación metalúrgica (LCT) | ✅ **R²=0.33** robusto (perm p=0.005, GroupKFold, no tautológico) |
+| 🛩️ NASA CMAPSS | RUL turbofan | 🟡 R²=0.593 (moderado, no SOTA) |
+| ⛏️ Flotación hierro | % sílica del concentrado | 🔴 sin señal de sensores (dominado por persistencia) |
+| ⚙️ AI4I 2020 | fallo de máquina (binario) | 🔴 fuera de alcance (clasificación) |
+
+> 📊 **Mapa completo, honesto y reproducible en [`results/verification/FINDINGS.md`](results/verification/FINDINGS.md).** El pipeline detecta señal donde la hay y reporta cero donde no la hay — cazó 4 modos de autoengaño (leakage autorregresivo, split degenerado, tautología feature↔target, persistencia inflada) que la literatura suele publicar como aciertos. El edge robusto confirmado vive en **recuperación geometalúrgica de cobre**.
 
 La arquitectura combina:
 

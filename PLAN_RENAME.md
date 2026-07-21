@@ -1,7 +1,10 @@
 # 📋 Plan de rename — `proyecto_minero_4.0` → `universal-soft-sensor`
 
-> Auditoría + plan de ejecución. **Nada se ejecuta hasta tu OK.**
-> Fecha: 2026-07-20
+> ✅ **EJECUTADO (2026-07-20).** Este documento es el registro histórico del plan.
+> El rename se completó (10 clases, 3 archivos, imports, settings, pyproject, docs)
+> y se verificó con pytest + un A/B numérico (métricas idénticas viejo vs nuevo).
+>
+> Auditoría + plan de ejecución. Fecha: 2026-07-20
 
 ---
 

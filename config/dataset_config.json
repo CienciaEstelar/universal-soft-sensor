@@ -1,33 +1,53 @@
 {
-  "dataset_name": "example_flotation",
-  "description": "Ejemplo de configuración para un proceso de flotación genérico. Reemplaza con tu dataset real.",
+  "dataset_name": "ai4i2020",
+  "description": "AI4I 2020 Predictive Maintenance — 10,000 filas, fallo de máquina con 5 modos independientes. Target: Machine failure (0=normal, 1=falla).",
   "files": {
-    "filename": "your_dataset.csv",
-    "timestamp_column": "date",
+    "filename": "ai4i2020.csv",
+    "timestamp_column": "timestamp",
     "separator": ","
   },
   "modeling": {
-    "target_column": "target_variable",
-    "problem_type": "regression",
-    "notes": "Reemplaza 'target_variable' con la columna que quieres predecir (ej: recovery, grade, silica_pct)"
+    "target_column": "Machine failure",
+    "problem_type": "classification",
+    "notes": "Clasificación binaria. Las columnas TWF/HDF/PWF/OSF/RNF son data leakage (son los modos que definen el target) y DEBEN excluirse."
   },
   "feature_engineering": {
     "include_patterns": [
-      "input",
-      "state",
-      "sensor"
+      "temperature",
+      "speed",
+      "torque",
+      "wear",
+      "Type",
+      "Air",
+      "Process",
+      "Rotational",
+      "Tool"
     ],
     "exclude_patterns": [
-      ".output.",
-      "downstream"
+      "TWF",
+      "HDF",
+      "PWF",
+      "OSF",
+      "RNF",
+      "UDI",
+      "Product ID",
+      "timestamp"
     ],
     "forced_drop": [
-      "date"
+      "UDI",
+      "Product ID",
+      "TWF",
+      "HDF",
+      "PWF",
+      "OSF",
+      "RNF",
+      "Type",
+      "timestamp"
     ],
-    "notes": "include_patterns: patrones de columnas que quieres usar como features. exclude_patterns: patrones de columnas futuras o downstream que causan data leakage. forced_drop: columnas que siempre se eliminan."
+    "notes": "Se excluyen los 5 modos de falla (leakage perfecto) + UDI/Product ID (no predictivos). Type (L/M/H) se mantiene como feature categórica."
   },
   "preprocessing": {
-    "handle_nulls": "ffill",
+    "handle_nulls": "none",
     "handle_outliers": "robust_scaler",
     "feature_scaling": "robust"
   },
