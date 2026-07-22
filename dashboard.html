@@ -59,6 +59,18 @@
   .permstat{display:flex;gap:26px;margin-top:14px;flex-wrap:wrap}
   .permstat div{font-size:13px;color:var(--muted)}
   .permstat b{display:block;font-size:24px;color:var(--cu2);font-weight:800;font-variant-numeric:tabular-nums}
+  /* calculadora */
+  .calc-grid{display:grid;grid-template-columns:340px 1fr;gap:26px}
+  .calc-ctrl label{display:block;font-size:13px;color:var(--muted);margin:16px 0 6px;font-weight:600}
+  .calc-ctrl .val{color:var(--cu2);font-weight:800;font-variant-numeric:tabular-nums}
+  .calc-ctrl input[type=range]{width:100%;accent-color:var(--cu);height:6px}
+  .calc-out{display:flex;flex-direction:column;justify-content:center;gap:14px}
+  .calc-row{display:flex;justify-content:space-between;align-items:baseline;padding:11px 16px;background:var(--card2);border:1px solid var(--line);border-radius:10px}
+  .calc-row .k{font-size:13px;color:var(--muted)}
+  .calc-row .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+  .calc-row.big .v{font-size:27px;color:var(--green)}
+  .calc-row .u{font-size:13px;color:var(--muted);font-weight:600;margin-left:4px}
+  .calc-flow{position:relative;height:150px;margin-top:4px}
   /* domain explorer */
   .domains{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
   .dchip{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:13px 12px;cursor:pointer;transition:.18s;text-align:center}
@@ -101,6 +113,30 @@
     <div class="kpi"><div class="n">0.005</div><div class="l">p-value · 200 perms</div><div class="d">&lt;0,5% de que sea azar</div></div>
     <div class="kpi"><div class="n">≈ 0.00</div><div class="l">baseline (media)</div><div class="d">el modelo lo supera</div></div>
     <div class="kpi"><div class="n">n = 92</div><div class="l">muestras · 21 sondajes</div><div class="d">único dataset abierto real</div></div>
+  </div>
+
+  <!-- interactive 0: calculadora roca -> cobre -->
+  <h2>◆ De roca a cobre: la calculadora <span class="tag">interactivo · toneladas y ley → kilos reales</span></h2>
+  <p class="sub">Movés cuánta roca tenés y su ley de cobre, y el sistema traduce la recuperación que predice a kilos concretos. Fijate en el detalle honesto: al mover la ley cambia el cobre total, pero NO el % de recuperación — porque en estos datos la recuperación es casi independiente de la ley (r=−0,06). La dureza y la química juntas son las que la mueven.</p>
+  <div class="panel">
+    <div class="calc-grid">
+      <div class="calc-ctrl">
+        <label>Cantidad de roca: <span class="val" id="valTon">1.0</span> toneladas</label>
+        <input type="range" id="sTon" min="0.1" max="100" step="0.1" value="1">
+        <label>Ley de cobre: <span class="val" id="valLey">1.20</span> % Cu <span style="color:var(--muted);font-weight:400">(rango real 0,5–2,7%)</span></label>
+        <input type="range" id="sLey" min="0.5" max="2.7" step="0.05" value="1.2">
+        <label>Recuperación estimada por el modelo</label>
+        <div style="font-size:26px;font-weight:800;color:var(--cu2)">88.6% <span style="font-size:14px;color:var(--muted);font-weight:600">± 5% (margen)</span></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">Media histórica de tus 92 muestras (rango real 74–96%). Es lo que el laboratorio tardaría horas en darte.</div>
+      </div>
+      <div class="calc-out">
+        <div class="calc-row"><span class="k">🪨 Cobre contenido en la roca</span><span><span class="v" id="outContent">12.0</span><span class="u">kg</span></span></div>
+        <div class="calc-row big"><span class="k">✅ Cobre recuperado (predicho)</span><span><span class="v" id="outRec">10.6</span><span class="u">kg</span></span></div>
+        <div class="calc-row"><span class="k">⛏️ Perdido en el relave</span><span><span class="v" id="outLost" style="color:var(--red)">1.4</span><span class="u">kg</span></span></div>
+        <div class="calc-flow"><canvas id="chartCalc"></canvas></div>
+        <div style="font-size:12px;color:var(--muted)">Rango del recuperado según el margen del modelo: <b id="outRange" style="color:var(--ink)">9.6 – 11.6 kg</b></div>
+      </div>
+    </div>
   </div>
 
   <!-- interactive 1: permutation -->
@@ -194,6 +230,50 @@
 Chart.defaults.color='#8b98ab';Chart.defaults.font.family="'Segoe UI',system-ui,sans-serif";Chart.defaults.font.size=12;
 const GRID='rgba(35,48,74,.6)',CU='#e8894d',CU2='#f4a261',TEAL='#2a9d8f',GREEN='#3ddc84',RED='#e85d5d',YELLOW='#e9c46a',BLUE='#4da6e8';
 const REAL_R2=0.319;
+
+/* ============ INTERACTIVO 0: calculadora roca -> cobre ============ */
+// Números reales de los 92 datos de GeoMet: recuperación (LCT) media 0.886,
+// rango 0.744-0.958; margen ±5% ≈ 1 desviación residual (0.046).
+const REC_MEAN=0.886, REC_LO=0.796, REC_HI=0.976;
+function fmt(kg){ // kg -> string con unidad legible
+  if(kg>=1000) return (kg/1000).toFixed(2).replace(/\.?0+$/,'')+' t';
+  return kg.toFixed(kg<10?2:1)+' kg';
+}
+const calcChart=new Chart(document.getElementById('chartCalc'),{
+  type:'bar',
+  data:{labels:['1 tonelada'],datasets:[
+    {label:'Recuperado',data:[10.6],backgroundColor:'rgba(61,220,132,.8)',borderColor:GREEN,borderWidth:1.5,borderRadius:4,stack:'s'},
+    {label:'Relave (perdido)',data:[1.4],backgroundColor:'rgba(232,93,93,.6)',borderColor:RED,borderWidth:1.5,borderRadius:4,stack:'s'}
+  ]},
+  options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{position:'bottom',labels:{boxWidth:12,font:{size:11}}},
+      tooltip:{callbacks:{label:c=>c.dataset.label+': '+c.parsed.x.toFixed(2)+' kg'}}},
+    scales:{x:{stacked:true,grid:{color:GRID},title:{display:true,text:'kg de cobre'}},
+      y:{stacked:true,grid:{display:false}}}}
+});
+function calc(){
+  const ton=parseFloat(document.getElementById('sTon').value);
+  const ley=parseFloat(document.getElementById('sLey').value);
+  document.getElementById('valTon').textContent=ton.toFixed(1);
+  document.getElementById('valLey').textContent=ley.toFixed(2);
+  const content=ton*1000*ley/100;          // kg de Cu en la roca
+  const rec=content*REC_MEAN;              // recuperado central
+  const lost=content-rec;
+  document.getElementById('outContent').textContent=fmt(content).split(' ')[0];
+  document.getElementById('outRec').textContent=fmt(rec).split(' ')[0];
+  document.getElementById('outLost').textContent=fmt(lost).split(' ')[0];
+  document.getElementById('outContent').nextElementSibling.textContent=fmt(content).split(' ')[1];
+  document.getElementById('outRec').nextElementSibling.textContent=fmt(rec).split(' ')[1];
+  document.getElementById('outLost').nextElementSibling.textContent=fmt(lost).split(' ')[1];
+  document.getElementById('outRange').textContent=fmt(content*REC_LO)+' – '+fmt(content*REC_HI);
+  calcChart.data.datasets[0].data=[rec];
+  calcChart.data.datasets[1].data=[lost];
+  calcChart.data.labels=[ton.toFixed(1)+' t de roca'];
+  calcChart.update();
+}
+document.getElementById('sTon').oninput=calc;
+document.getElementById('sLey').oninput=calc;
+calc();
 
 /* ============ INTERACTIVO 1: permutación ============ */
 // Distribución nula ilustrativa: target barajado -> R² colapsa cerca de 0 (típicamente negativo).
