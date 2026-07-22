@@ -873,5 +873,86 @@ class TestUncertaintyCalibration:
         assert inflado.sharpness > 10 * honesto.sharpness
 
 
+class TestNaiveBaseline:
+    """
+    [P2 ROADMAP — baseline naive] Tests del R² del predictor trivial (media
+    del train). Da el "piso" contra el que se lee el R² del modelo. Fijan el
+    contrato y previenen la trampa de usar la media del TEST (que daría 0.0
+    tautológico en vez del baseline honesto).
+    """
+
+    def _model(self):
+        return SoftSensorGP(target_col="t")
+
+    def test_baseline_near_zero_when_train_mean_matches_test(self):
+        """Si la media de train coincide con la de test, el baseline (predecir
+        esa media constante) da R²≈0 — el punto de referencia clásico."""
+        m = self._model()
+        rng = np.random.default_rng(0)
+        y_true = rng.normal(5.0, 2.0, 300)
+        y_pred = y_true + rng.normal(0, 0.3, 300)
+
+        metrics = m.evaluate(y_true, y_pred, y_train_mean=5.0)
+
+        assert metrics.baseline_r2 is not None
+        assert abs(metrics.baseline_r2) < 0.05     # ≈ 0
+        assert metrics.r2 > metrics.baseline_r2     # el modelo aporta señal
+
+    def test_baseline_negative_when_train_mean_off(self):
+        """La media de train sesgada respecto del test da baseline negativo —
+        información honesta, no un bug. (Confirma que NO se usa la media del
+        test, que forzaría 0.0.)"""
+        m = self._model()
+        rng = np.random.default_rng(1)
+        y_true = rng.normal(5.0, 2.0, 300)
+        y_pred = y_true + rng.normal(0, 0.3, 300)
+
+        metrics = m.evaluate(y_true, y_pred, y_train_mean=50.0)  # media lejísimos
+
+        assert metrics.baseline_r2 is not None
+        assert metrics.baseline_r2 < -1.0
+
+    def test_baseline_none_without_train_mean(self):
+        """Sin y_train_mean (firma original) no se calcula — backward compat."""
+        m = self._model()
+        rng = np.random.default_rng(2)
+        y_true = rng.normal(0, 1, 200)
+        y_pred = y_true + rng.normal(0, 0.1, 200)
+
+        metrics = m.evaluate(y_true, y_pred)
+
+        assert metrics.baseline_r2 is None
+
+    def test_model_predicting_test_mean_ties_baseline_at_zero(self):
+        """Un 'modelo' que predice la media del test da R²=0, y si el train
+        tiene esa misma media, el baseline también es 0 — empatan. Verifica que
+        el baseline no está inflado artificialmente."""
+        m = self._model()
+        rng = np.random.default_rng(3)
+        y_true = rng.normal(0, 1, 200)
+        y_pred = np.full(200, y_true.mean())  # predice media del test
+
+        metrics = m.evaluate(y_true, y_pred, y_train_mean=y_true.mean())
+
+        assert metrics.r2 == pytest.approx(0.0, abs=1e-9)
+        assert metrics.baseline_r2 == pytest.approx(0.0, abs=1e-9)
+
+    def test_baseline_in_dict_and_repr(self):
+        """to_dict()/__repr__ incluyen baseline_r2 cuando existe, lo omiten si
+        es None."""
+        m = self._model()
+        rng = np.random.default_rng(4)
+        y_true = rng.normal(0, 1, 200)
+        y_pred = y_true + rng.normal(0, 0.1, 200)
+
+        with_base = m.evaluate(y_true, y_pred, y_train_mean=0.0)
+        assert "baseline_r2" in with_base.to_dict()
+        assert "R²base" in repr(with_base)
+
+        without = m.evaluate(y_true, y_pred)
+        assert "baseline_r2" not in without.to_dict()
+        assert "R²base" not in repr(without)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

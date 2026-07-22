@@ -171,6 +171,17 @@ class ModelMetrics:
             meta es cobertura ≈0.95 CON la menor sharpness posible (bandas
             angostas pero honestas). Menor = mejor, PERO solo si la cobertura
             se mantiene cerca de 0.95. Solo aplica al GP; None para el GB.
+        baseline_r2: [P2 ROADMAP — baseline naive] R² del predictor trivial que
+            SIEMPRE predice la media del TARGET DE ENTRENAMIENTO, evaluado sobre
+            el mismo test set. Es el "piso" contra el que se lee el R² del
+            modelo: un R²=0.32 no significa nada sin saber que el baseline da,
+            por ejemplo, 0.00 — recién ahí se ve que el modelo aporta señal
+            real sobre no-modelo. CRÍTICO: la media viene del TRAIN, no del
+            test; usar la media del test daría exactamente 0.0 por definición
+            (tautológico, R² se define contra la media del propio conjunto).
+            Con la media del train puede ser negativo si train y test difieren
+            — y eso también es información honesta. None si no se provee la
+            media del train a evaluate().
     """
     r2: float = 0.0
     rmse: float = 0.0
@@ -180,6 +191,7 @@ class ModelMetrics:
     nll: Optional[float] = None
     coverage_95: Optional[float] = None
     sharpness: Optional[float] = None
+    baseline_r2: Optional[float] = None
 
     def to_dict(self) -> dict:
         """Convierte las métricas a diccionario (útil para JSON)."""
@@ -192,10 +204,14 @@ class ModelMetrics:
             d["coverage_95"] = self.coverage_95
         if self.sharpness is not None:
             d["sharpness"] = self.sharpness
+        if self.baseline_r2 is not None:
+            d["baseline_r2"] = self.baseline_r2
         return d
 
     def __repr__(self) -> str:
         base = f"R²={self.r2:.4f}, RMSE={self.rmse:.4f}, MAE={self.mae:.4f}"
+        if self.baseline_r2 is not None:
+            base += f", R²base={self.baseline_r2:.4f}"
         if self.permutation_p_value is not None:
             base += f", p-perm={self.permutation_p_value:.4f}"
         if self.nll is not None:
@@ -1214,6 +1230,7 @@ class SoftSensorGP:
         y_true: np.ndarray,
         y_pred: np.ndarray,
         y_std: Optional[np.ndarray] = None,
+        y_train_mean: Optional[float] = None,
     ) -> ModelMetrics:
         """
         Calcula métricas de evaluación.
@@ -1228,9 +1245,16 @@ class SoftSensorGP:
                 None. Solo el GP entrega una σ real; calcular calibración sobre
                 σ=0 daría división por cero enmascarada en un número basura, así
                 que se evita explícitamente en vez de reportar algo engañoso.
+            y_train_mean: [P2 ROADMAP — baseline naive] Media del target de
+                ENTRENAMIENTO. Si se provee, se calcula baseline_r2: el R² de
+                predecir siempre esa media constante sobre el test. Es el piso
+                honesto contra el que se lee el R² del modelo. DEBE ser la media
+                del train, no del test (la del test daría 0.0 tautológico). None
+                → no se calcula baseline_r2 (backward-compatible).
 
         Returns:
-            ModelMetrics con R², RMSE, MAE, MAPE y —si hay σ real— NLL y Cov95.
+            ModelMetrics con R², RMSE, MAE, MAPE y —según se provea— NLL/Cov95/
+            sharpness (con σ real) y baseline_r2 (con la media de train).
         """
         y_true = np.asarray(y_true, dtype=float).ravel()
         y_pred = np.asarray(y_pred, dtype=float).ravel()
@@ -1282,6 +1306,16 @@ class SoftSensorGP:
                 # una cobertura alta con sharpness enorme = bandas inútiles.
                 sharpness = float(np.mean(2 * 1.96 * y_std_arr))
 
+        # [P2 ROADMAP — baseline naive] R² del predictor constante = media del
+        # TRAIN. Solo si se provee la media y el test tiene varianza (si no, R²
+        # es indefinido igual que arriba). Da contexto al R² del modelo: cuánto
+        # supera al no-modelo. Puede ser negativo (media de train peor que la
+        # de test), lo cual es información honesta, no un bug.
+        baseline_r2 = None
+        if y_train_mean is not None and np.var(y_true) > 0:
+            baseline_pred = np.full_like(y_true, float(y_train_mean))
+            baseline_r2 = float(r2_score(y_true, baseline_pred))
+
         self.metrics = ModelMetrics(
             r2=r2,
             rmse=np.sqrt(mean_squared_error(y_true, y_pred)),
@@ -1290,6 +1324,7 @@ class SoftSensorGP:
             nll=nll,
             coverage_95=coverage_95,
             sharpness=sharpness,
+            baseline_r2=baseline_r2,
         )
 
         return self.metrics
@@ -1591,6 +1626,15 @@ class SoftSensorGP:
                 }
                 metrics_rows = [
                     ("R² Score (holdout)", f"{self.metrics.r2:.4f}", "Excelente" if self.metrics.r2 > 0.8 else "Bueno" if self.metrics.r2 > 0.6 else "Moderado/Pobre"),
+                ]
+                # [P2 ROADMAP — baseline naive] Contexto del R²: el piso.
+                if self.metrics.baseline_r2 is not None:
+                    beats = (not np.isnan(self.metrics.r2)) and self.metrics.r2 > self.metrics.baseline_r2
+                    metrics_rows.append((
+                        "R² baseline (media train)", f"{self.metrics.baseline_r2:.4f}",
+                        "El modelo lo supera" if beats else "El modelo NO supera al no-modelo",
+                    ))
+                metrics_rows += [
                     ("RMSE", f"{self.metrics.rmse:.4f}", "Error típico"),
                     ("MAE", f"{self.metrics.mae:.4f}", "Error absoluto promedio"),
                     ("MAPE", f"{self.metrics.mape:.2f}%", "Error porcentual"),
@@ -1747,7 +1791,10 @@ class SoftSensorGP:
         # Paso 5: Evaluar en test set (y_test ya está en escala original)
         y_test_real = y_test.ravel()
         y_pred, y_std = self.predict(X_test_s)
-        metrics = self.evaluate(y_test_real, y_pred, y_std=y_std)
+        # [P2 ROADMAP] Media del TRAIN (escala original, y_train no está escalado)
+        # para el baseline naive — NO la del test, que daría R²=0 tautológico.
+        y_train_mean = float(np.asarray(y_train, dtype=float).mean())
+        metrics = self.evaluate(y_test_real, y_pred, y_std=y_std, y_train_mean=y_train_mean)
 
         # [P0b ROADMAP] Permutation test opcional sobre el DATASET COMPLETO
         # (X, y, groups — no solo X_train) — mismo protocolo agregado
@@ -1782,6 +1829,16 @@ class SoftSensorGP:
         r2_color = "green" if metrics.r2 > 0.7 else "yellow" if metrics.r2 > 0.5 else "red"
         r2_interp = "Excelente" if metrics.r2 > 0.8 else "Bueno" if metrics.r2 > 0.6 else "Pobre"
         table.add_row("R² Score (holdout)", f"[{r2_color}]{metrics.r2:.4f}[/{r2_color}]", r2_interp)
+        # [P2 ROADMAP — baseline naive] Piso contra el que se lee el R² del modelo.
+        if metrics.baseline_r2 is not None:
+            beats = (not np.isnan(metrics.r2)) and metrics.r2 > metrics.baseline_r2
+            base_color = "green" if beats else "red"
+            base_interp = "✅ el modelo lo supera" if beats else "🔴 el modelo NO supera al no-modelo"
+            table.add_row(
+                "R² baseline (media train)",
+                f"[{base_color}]{metrics.baseline_r2:.4f}[/{base_color}]",
+                base_interp,
+            )
         table.add_row("RMSE", f"{metrics.rmse:.4f}", "Error típico")
         table.add_row("MAE", f"{metrics.mae:.4f}", "Error absoluto promedio")
         table.add_row("MAPE", f"{metrics.mape:.2f}%", "Error porcentual")
