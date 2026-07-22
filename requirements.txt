@@ -8,7 +8,14 @@ pandas>=2.0.0
 numpy>=1.24.0
 
 # Machine Learning
-scikit-learn>=1.3.0
+# ⚠️ REPRODUCIBILIDAD (2026-07-22): el R²=0.319 de GeoMet cobre es sensible a la
+# versión de scikit-learn. Con sklearn 1.9.0 (Python 3.12) reproduce en 0.319
+# (auditoría 0.3296, pipeline 0.3190). Con sklearn 1.7.2 (Python 3.10) el MISMO
+# código da ~0.11. Causa: GradientBoosting cambió comportamiento entre 1.7 y 1.9,
+# y con n=92 (dato chico) esa diferencia mueve el R² de 0.11 a 0.32. Por eso se
+# fija un piso en 1.9.0: sin este pin, quien re-corra con otra versión NO obtiene
+# el número documentado. Verificar con `python verify_geomet_number.py`.
+scikit-learn>=1.9.0
 optuna>=3.0.0
 joblib>=1.3.0
 

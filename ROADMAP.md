@@ -265,3 +265,12 @@ conclusión.
   directo — NO reintroducir el `ffill()` incondicional: en datos agrupados/spatiales
   fabrica valores tomando la fila vecina de OTRO grupo (bug real encontrado con GeoMet
   cobre, columna "Carbono Grafite ppm" con 12/60 NaN).
+- **⚠️ El R²=0.319 de GeoMet cobre depende de `scikit-learn>=1.9.0` (2026-07-22)**: con
+  sklearn 1.7.2 (Python 3.10) el MISMO código y datos dan R²≈0.11, no 0.319. Causa: cambio
+  de comportamiento de `GradientBoostingRegressor` entre 1.7 y 1.9 que, con n=92 (dato
+  chico, alta varianza), mueve el R² de 0.11 a 0.32. `requirements.txt` fija `sklearn>=1.9.0`
+  por esto — NO relajar ese pin sin re-verificar el número. Reproducir con
+  `python verify_geomet_number.py` (imprime R² por auditoría + pipeline y la versión de
+  sklearn). Confirmado en el entorno del autor: sklearn 1.9.0 / Py 3.12 → auditoría 0.3296,
+  pipeline 0.3190, p=0.02. Lección honesta: un R² sobre n=92 es **frágil a la versión de
+  librería**; el argumento de fondo es el método y el rigor, no la magnitud exacta.
