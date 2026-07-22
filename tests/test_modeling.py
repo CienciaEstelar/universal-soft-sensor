@@ -954,5 +954,108 @@ class TestNaiveBaseline:
         assert "R²base" not in repr(without)
 
 
+class TestExtrapolation:
+    """
+    [ROADMAP — extrapolación] Tests de extrapolation_test(). La pregunta que
+    responde: ¿el GP ENSANCHA su incertidumbre fuera del rango de
+    entrenamiento (degrada con gracia) o se equivoca con confianza? La firma
+    sana es std_ratio = σ_exterior/σ_interior > 1.
+    """
+
+    def _model(self):
+        m = SoftSensorGP(target_col="t")
+        m.feature_names = ["dureza", "ruido"]
+        return m
+
+    def _smooth_data(self, n=400, seed=0):
+        rng = np.random.default_rng(seed)
+        dureza = rng.uniform(0, 10, n)
+        ruido = rng.uniform(0, 1, n)
+        y = np.sin(dureza) + 0.05 * rng.normal(0, 1, n)
+        X = np.column_stack([dureza, ruido])
+        return X, y
+
+    def test_gp_widens_uncertainty_outside_training_range(self):
+        """Sobre un target suave, un GP entrenado en el interior debe ensanchar
+        σ en la zona de extrapolación: std_ratio > 1 y graceful=True."""
+        m = self._model()
+        X, y = self._smooth_data()
+
+        res = m.extrapolation_test(X, y, feature="dureza", low_pct=15, high_pct=85)
+
+        assert res["status"] == "ok"
+        assert res["std_ratio"] > 1.0
+        assert res["graceful"] is True
+        # La extrapolación es genuinamente difícil: el R² exterior debe ser
+        # peor que el interior (no exigimos que sea bueno — sería sospechoso).
+        assert res["r2_exterior"] < res["r2_interior"]
+
+    def test_determinism_same_seed(self):
+        """Con el mismo random_state, el resultado es idéntico (split interno
+        seedeado)."""
+        m1 = self._model()
+        m2 = self._model()
+        X, y = self._smooth_data()
+
+        r1 = m1.extrapolation_test(X, y, feature="dureza")
+        r2 = m2.extrapolation_test(X, y, feature="dureza")
+
+        assert r1["std_ratio"] == pytest.approx(r2["std_ratio"])
+        assert r1["r2_exterior"] == pytest.approx(r2["r2_exterior"])
+
+    def test_skips_when_zones_too_small(self):
+        """Dataset chico → status 'skipped' con reason, sin crash ni número
+        frágil."""
+        m = self._model()
+        rng = np.random.default_rng(0)
+        n = 20
+        X = np.column_stack([rng.uniform(0, 10, n), rng.uniform(0, 1, n)])
+        y = rng.normal(0, 1, n)
+
+        res = m.extrapolation_test(X, y, feature="dureza")
+
+        assert res["status"] == "skipped"
+        assert "reason" in res
+
+    def test_feature_by_name_and_index_agree(self):
+        """Resolver la feature por nombre o por índice debe dar el mismo
+        resultado."""
+        m = self._model()
+        X, y = self._smooth_data()
+
+        by_name = m.extrapolation_test(X, y, feature="dureza", low_pct=15, high_pct=85)
+        by_idx = m.extrapolation_test(X, y, feature=0, low_pct=15, high_pct=85)
+
+        assert by_name["status"] == by_idx["status"] == "ok"
+        assert by_name["feature"] == by_idx["feature"] == "dureza"
+        assert by_name["std_ratio"] == pytest.approx(by_idx["std_ratio"])
+
+    def test_unknown_feature_and_constant_feature_skip(self):
+        """Feature inexistente o constante → skipped, no excepción."""
+        m = self._model()
+        X, y = self._smooth_data()
+
+        assert m.extrapolation_test(X, y, feature="zzz")["status"] == "skipped"
+
+        Xc = X.copy()
+        Xc[:, 0] = 5.0  # dureza constante
+        assert m.extrapolation_test(Xc, y, feature="dureza")["status"] == "skipped"
+
+    def test_result_contract_keys_present(self):
+        """El dict 'ok' debe traer todas las claves documentadas."""
+        m = self._model()
+        X, y = self._smooth_data()
+
+        res = m.extrapolation_test(X, y, feature="dureza", low_pct=15, high_pct=85)
+
+        for k in (
+            "feature", "threshold_low", "threshold_high",
+            "n_interior_train", "n_interior_holdout", "n_exterior",
+            "r2_interior", "r2_exterior", "mean_std_interior",
+            "mean_std_exterior", "std_ratio", "coverage_95_exterior", "graceful",
+        ):
+            assert k in res, f"falta la clave '{k}' en el resultado"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

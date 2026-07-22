@@ -1991,6 +1991,166 @@ class SoftSensorGP:
             "null_r2_distribution": null_r2_distribution,
         }
 
+    def extrapolation_test(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        feature: Union[int, str],
+        low_pct: float = 10.0,
+        high_pct: float = 90.0,
+        min_zone: int = 8,
+    ) -> Dict:
+        """
+        [P... ROADMAP — extrapolación] ¿El GP degrada con GRACIA fuera del
+        rango de entrenamiento, o se equivoca con confianza?
+
+        Idea adaptada del "Test Extrapolación" del proyecto de cosmología
+        `train_gp.py`: se entrena SOLO en el interior del rango de una variable
+        física (ej. dureza F80/P80, o ley de Cu) y se evalúa en el EXTERIOR
+        (valores por debajo del percentil `low_pct` o por encima de `high_pct`,
+        nunca vistos en entrenamiento). El escenario real: un sondaje nuevo con
+        dureza fuera de lo observado en los datos actuales.
+
+        La pregunta central NO es "¿el R² afuera es bueno?" (casi siempre será
+        peor — es extrapolación). Es: **¿el GP ENSANCHA su incertidumbre σ en
+        la zona de extrapolación?** Un GP sano "sabe que no sabe": σ_exterior >
+        σ_interior. Un modelo peligroso mantiene σ chico y entrega predicciones
+        confiadamente equivocadas. `std_ratio = σ_ext / σ_int > 1` es la firma
+        de degradación con gracia.
+
+        Usa un GP de hiperparámetros FIJOS (Matérn ν=1.5, sin Optuna) —
+        forzado, aunque el modelo de producción sea el fallback GB: el GB no
+        entrega σ y sin σ este test no tiene sentido. Es un diagnóstico del
+        comportamiento de la incertidumbre, no una re-evaluación del modelo
+        final.
+
+        Protocolo (σ de referencia honesta, sin trampa):
+          1. interior = puntos con la feature en [P_low, P_high]; exterior =
+             el resto.
+          2. El interior se parte 80/20 en train/holdout. El GP se entrena SOLO
+             en interior-train. σ_interior se mide en interior-HOLDOUT (no en
+             los puntos de entrenamiento, donde σ sería artificialmente bajo) —
+             así la comparación con σ_exterior es justa.
+          3. Se reporta R², cobertura y σ media en interior-holdout vs exterior.
+
+        Args:
+            X: Features (post feature-engineering, SIN escalar). Se escala
+                internamente con fit SOLO en interior-train (anti-leakage).
+            y: Target alineado fila a fila con X, escala original.
+            feature: Nombre (debe estar en self.feature_names) o índice de
+                columna de la variable cuyo rango se parte.
+            low_pct, high_pct: Percentiles que definen el interior [10, 90] por
+                defecto.
+            min_zone: Mínimo de puntos requerido en interior-holdout y en
+                exterior para que el test sea informativo. Si no se cumple, se
+                devuelve `status="skipped"` en vez de un número frágil.
+
+        Returns:
+            Dict con status="ok" y las métricas, o status="skipped" y reason.
+            Claves (si ok): feature, threshold_low, threshold_high,
+            n_interior_train, n_interior_holdout, n_exterior, r2_interior,
+            r2_exterior, mean_std_interior, mean_std_exterior, std_ratio,
+            coverage_95_exterior, graceful (bool).
+        """
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=float).ravel()
+
+        # --- Resolver la columna de la feature ---
+        if isinstance(feature, str):
+            if not self.feature_names or feature not in self.feature_names:
+                return {"status": "skipped", "reason": f"feature '{feature}' no está en feature_names"}
+            fidx = self.feature_names.index(feature)
+            fname = feature
+        else:
+            fidx = int(feature)
+            if fidx < 0 or fidx >= X.shape[1]:
+                return {"status": "skipped", "reason": f"índice de feature {fidx} fuera de rango"}
+            fname = self.feature_names[fidx] if self.feature_names and fidx < len(self.feature_names) else f"col_{fidx}"
+
+        col = X[:, fidx]
+        lo, hi = np.percentile(col, [low_pct, high_pct])
+        if lo == hi:
+            return {"status": "skipped", "reason": f"feature '{fname}' constante entre P{low_pct} y P{high_pct}"}
+
+        interior_mask = (col >= lo) & (col <= hi)
+        exterior_mask = ~interior_mask
+        interior_idx = np.where(interior_mask)[0]
+        exterior_idx = np.where(exterior_mask)[0]
+
+        # --- Partir interior en train/holdout (80/20), seed determinista ---
+        rng = np.random.default_rng(self.random_state)
+        perm = rng.permutation(interior_idx)
+        n_hold = max(min_zone, int(round(0.2 * len(perm))))
+        if len(perm) - n_hold < 10 or n_hold < min_zone or len(exterior_idx) < min_zone:
+            return {
+                "status": "skipped",
+                "reason": (
+                    f"zonas insuficientes: interior_train={max(0, len(perm) - n_hold)}, "
+                    f"interior_holdout={min(n_hold, len(perm))}, exterior={len(exterior_idx)} "
+                    f"(mínimo interior_train≥10, holdout/exterior≥{min_zone})"
+                ),
+            }
+        hold_idx = perm[:n_hold]
+        train_idx = perm[n_hold:]
+
+        X_tr, y_tr = X[train_idx], y[train_idx]
+        X_ho, y_ho = X[hold_idx], y[hold_idx]
+        X_ex, y_ex = X[exterior_idx], y[exterior_idx]
+
+        # --- Escalar con fit SOLO en interior-train (anti-leakage) ---
+        sx = RobustScaler().fit(X_tr)
+        sy = RobustScaler().fit(y_tr.reshape(-1, 1))
+        X_tr_s = sx.transform(X_tr)
+        y_tr_s = sy.transform(y_tr.reshape(-1, 1)).ravel()
+
+        # --- GP fijo (Matérn ν=1.5), sin Optuna ---
+        kernel = (
+            ConstantKernel(1.0, (1e-3, 1e3)) *
+            Matern(length_scale=1.0, nu=1.5, length_scale_bounds=(0.01, 100)) +
+            WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-3, 10))
+        )
+        gp = GaussianProcessRegressor(kernel=kernel, alpha=1e-6,
+                                      n_restarts_optimizer=2, random_state=self.random_state)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            gp.fit(X_tr_s, y_tr_s)
+
+        def _predict_orig(Xz):
+            mu_s, sd_s = gp.predict(sx.transform(Xz), return_std=True)
+            mu = sy.inverse_transform(mu_s.reshape(-1, 1)).ravel()
+            sd = sd_s * sy.scale_[0]
+            return mu, sd
+
+        mu_ho, sd_ho = _predict_orig(X_ho)
+        mu_ex, sd_ex = _predict_orig(X_ex)
+
+        def _safe_r2(yt, yp):
+            yt = np.asarray(yt, dtype=float)
+            return float(r2_score(yt, yp)) if np.var(yt) > 0 else float("nan")
+
+        mean_sd_int = float(np.mean(sd_ho))
+        mean_sd_ext = float(np.mean(sd_ex))
+        std_ratio = float(mean_sd_ext / mean_sd_int) if mean_sd_int > 0 else float("inf")
+        coverage_ext = float(np.mean(np.abs(y_ex - mu_ex) <= 1.96 * sd_ex)) if np.all(sd_ex > 0) else float("nan")
+
+        return {
+            "status": "ok",
+            "feature": fname,
+            "threshold_low": float(lo),
+            "threshold_high": float(hi),
+            "n_interior_train": int(len(train_idx)),
+            "n_interior_holdout": int(len(hold_idx)),
+            "n_exterior": int(len(exterior_idx)),
+            "r2_interior": _safe_r2(y_ho, mu_ho),
+            "r2_exterior": _safe_r2(y_ex, mu_ex),
+            "mean_std_interior": mean_sd_int,
+            "mean_std_exterior": mean_sd_ext,
+            "std_ratio": std_ratio,
+            "coverage_95_exterior": coverage_ext,
+            # Firma de degradación con gracia: el GP ensancha σ fuera del rango.
+            "graceful": bool(std_ratio > 1.0),
+        }
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # EXPORTS PÚBLICOS
