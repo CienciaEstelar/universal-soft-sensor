@@ -130,6 +130,57 @@ def synthetic_data_ai4i():
 
 
 @pytest.fixture(scope="session")
+def synthetic_data_grouped():
+    """
+    [P0b ROADMAP] DataFrame sintético SIN dimensión temporal, con una
+    columna de agrupamiento (group_id) donde varias filas comparten grupo —
+    imita la estructura de datos geometalúrgicos por sondaje (ej. GeoMet
+    cobre: varias muestras por HOLEID).
+
+    15 grupos × 4 filas = 60 filas. Suficientes grupos para GroupKFold(k<=5)
+    y GroupShuffleSplit sin degenerar.
+
+    Returns:
+        pd.DataFrame: 60 filas, sin índice temporal, columna "group_id" con
+                      cardinalidad 15, target con señal real desde "feature_a".
+    """
+    n_groups = 15
+    rows_per_group = 4
+    n = n_groups * rows_per_group
+
+    group_id = np.repeat(np.arange(1, n_groups + 1), rows_per_group)
+    feature_a = np.random.uniform(0, 10, n)
+    feature_b = np.random.uniform(-5, 5, n)
+    feature_c = np.full(n, 42.0)  # constante, para probar remove_constant_features
+
+    df = pd.DataFrame({
+        "group_id": group_id,
+        "feature_a": feature_a,
+        "feature_b": feature_b,
+        "feature_c": feature_c,
+    })
+    df["target"] = 10.0 + 2.0 * df["feature_a"] + np.random.normal(0, 0.5, n)
+
+    return df
+
+
+@pytest.fixture
+def temp_csv_grouped(tmp_path, synthetic_data_grouped):
+    """
+    Guarda synthetic_data_grouped en CSV SIN índice (index=False) — con
+    parse_dates=False, load_data() no fuerza index_col, así que el CSV debe
+    tener "group_id" como columna real desde la primera posición, no como
+    índice implícito.
+
+    Returns:
+        str: Ruta absoluta al archivo CSV temporal.
+    """
+    p = tmp_path / "test_grouped_data.csv"
+    synthetic_data_grouped.to_csv(p, index=False)
+    return str(p)
+
+
+@pytest.fixture(scope="session")
 def synthetic_data_with_invalids():
     """
     DataFrame con valores inválidos para probar el validador.
@@ -280,7 +331,8 @@ def trained_model(synthetic_data, tmp_path):
         filepath=str(csv_path),
         n_trials=1,
         test_size=0.2,
-        save_model=False
+        save_model=False,
+        output_dir=tmp_path,  # no ensuciar el results/ real del proyecto
     )
     
     return model

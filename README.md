@@ -24,12 +24,28 @@ Pipeline **agnóstico al dominio** que reemplaza mediciones lentas o costosas (a
 | Dominio probado | Qué predice | Resultado honesto (verificado) |
 |---|---|---|
 | 🔧 ZeMA hidráulico | condición del enfriador | ✅ **R²=0.9998** (sensor-only, split estratificado) |
-| ⛏️ GeoMet cobre | recuperación metalúrgica (LCT) | ✅ **R²=0.33** robusto (perm p=0.005, GroupKFold, no tautológico) |
+| ⛏️ GeoMet cobre | recuperación metalúrgica (LCT) | ✅ **R²=0.319** confirmado en el pipeline integrado (200 permutaciones, p=0.005, GroupKFold por HOLEID, no tautológico) — reconcilia con el 0.33 del script de auditoría aislado. |
 | 🛩️ NASA CMAPSS | RUL turbofan | 🟡 R²=0.593 (moderado, no SOTA) |
 | ⛏️ Flotación hierro | % sílica del concentrado | 🔴 sin señal de sensores (dominado por persistencia) |
 | ⚙️ AI4I 2020 | fallo de máquina (binario) | 🔴 fuera de alcance (clasificación) |
 
-> 📊 **Mapa completo, honesto y reproducible en [`results/verification/FINDINGS.md`](results/verification/FINDINGS.md).** El pipeline detecta señal donde la hay y reporta cero donde no la hay — cazó 4 modos de autoengaño (leakage autorregresivo, split degenerado, tautología feature↔target, persistencia inflada) que la literatura suele publicar como aciertos. El edge robusto confirmado vive en **recuperación geometalúrgica de cobre**.
+> 📊 **Mapa completo, honesto y reproducible en [`results/verification/FINDINGS.md`](results/verification/FINDINGS.md).** El pipeline detecta señal donde la hay y reporta cero donde no la hay — cazó 4 modos de autoengaño (leakage autorregresivo, split degenerado, tautología feature↔target, persistencia inflada) que la literatura suele publicar como aciertos. El edge robusto confirmado vive en **recuperación geometalúrgica de cobre** (R²=0.319, p=0.005, 200 permutaciones).
+
+> ⛏️ **Foco del proyecto (2026-07-21): minería, cobre primero.** Los dominios no-mineros
+> (CMAPSS, ZeMA, AI4I2020) quedan como referencia técnica de que el pipeline generaliza,
+> no como objetivo de producto. `config/dataset_config.json` apunta por defecto a
+> **GeoMet cobre** (antes AI4I2020). El pipeline ahora soporta nativamente split/CV por
+> grupo (GroupShuffleSplit/GroupKFold, ver ROADMAP.md P0b) — necesario porque varias
+> muestras de GeoMet comparten sondaje (HOLEID) y un split ingenuo infla el R² por
+> leakage de grupo.
+>
+> ✅ **Reconciliación cerrada (misma fecha):** se encontraron y corrigieron dos bugs de
+> reproducibilidad en `UniversalAdapter` (un `ffill()` incondicional que fabricaba datos
+> entre sondajes distintos, y un orden de columnas no-determinista basado en `set()` que
+> hacía variar el R² reportado según qué feature correlacionada sobrevivía por azar). Con
+> ambos corregidos, 200 permutaciones sobre el pipeline integrado dan **R²=0.319, p=0.005**
+> — prácticamente idéntico al 0.33 del script de auditoría aislado. Detalle completo,
+> incluyendo las dos falsas alarmas intermedias, en ROADMAP.md sección 1b.
 
 La arquitectura combina:
 

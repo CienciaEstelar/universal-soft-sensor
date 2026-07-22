@@ -1,50 +1,43 @@
 {
-  "dataset_name": "ai4i2020",
-  "description": "AI4I 2020 Predictive Maintenance — 10,000 filas, fallo de máquina con 5 modos independientes. Target: Machine failure (0=normal, 1=falla).",
+  "dataset_name": "geomet_cobre",
+  "description": "GeoMet cobre (Zenodo 10.5281/zenodo.7051975) — 102 filas (join química×dureza por HOLEID; duplica por diseño, ver notes). Target: LCT (recuperación). Único resultado minero robusto verificado del proyecto (R²=0.33, permutation p=0.005, GroupKFold por HOLEID, independiente de ley Cu). Requiere group_column=HOLEID: sin split honesto el R² se infla a ~0.93 falso — ver ROADMAP.md P0b y results/verification/geomet_rigor.json.",
   "files": {
-    "filename": "ai4i2020.csv",
-    "timestamp_column": "timestamp",
+    "filename": "geomet/flotation_chem_dureza.csv",
+    "timestamp_column": "no_aplica_geomet_es_spatial_sin_tiempo",
     "separator": ","
   },
   "modeling": {
-    "target_column": "Machine failure",
-    "problem_type": "classification",
-    "notes": "Clasificación binaria. Las columnas TWF/HDF/PWF/OSF/RNF son data leakage (son los modos que definen el target) y DEBEN excluirse."
+    "target_column": "LCT",
+    "problem_type": "regression",
+    "notes": "LCT es el target verificado (results/verification/geomet_rigor.json). 'fr' y 'xr' son OTRAS respuestas de flotación del mismo experimento — se excluyen como features: usarlas sería predecir una respuesta desde otra respuesta correlacionada, no desde geoquímica/dureza independiente."
   },
   "feature_engineering": {
     "include_patterns": [
-      "temperature",
-      "speed",
-      "torque",
-      "wear",
-      "Type",
-      "Air",
-      "Process",
-      "Rotational",
-      "Tool"
+      "ppm",
+      "th1",
+      "th2",
+      "th3",
+      "F80",
+      "P80",
+      "M",
+      "A",
+      "HOLEID"
     ],
     "exclude_patterns": [
-      "TWF",
-      "HDF",
-      "PWF",
-      "OSF",
-      "RNF",
-      "UDI",
-      "Product ID",
-      "timestamp"
+      "X",
+      "Y",
+      "Z",
+      "fr",
+      "xr",
+      "_c"
     ],
     "forced_drop": [
-      "UDI",
-      "Product ID",
-      "TWF",
-      "HDF",
-      "PWF",
-      "OSF",
-      "RNF",
-      "Type",
-      "timestamp"
+      "fr",
+      "xr"
     ],
-    "notes": "Se excluyen los 5 modos de falla (leakage perfecto) + UDI/Product ID (no predictivos). Type (L/M/H) se mantiene como feature categórica."
+    "group_column": "HOLEID",
+    "parse_dates": false,
+    "notes": "group_column=HOLEID es OBLIGATORIO: el merge química+dureza duplica filas por sondaje (102 filas, 21 HOLEID únicos — ver data/geomet/flotation_chem_dureza.csv). Sin GroupShuffleSplit/GroupKFold el R² se infla por leakage de grupo. parse_dates=false porque es un dataset geometalúrgico/spatial (una fila = una muestra), sin dimensión temporal real. Columnas '_c' son duplicados de química re-medida en el archivo de dureza — se excluyen para no inflar correlación con su par original."
   },
   "preprocessing": {
     "handle_nulls": "none",
@@ -52,8 +45,8 @@
     "feature_scaling": "robust"
   },
   "training": {
-    "test_size": 0.2,
-    "validation_strategy": "time_series_split",
+    "test_size": 0.25,
+    "validation_strategy": "group_shuffle_split_holeid",
     "random_state": 42
   }
 }

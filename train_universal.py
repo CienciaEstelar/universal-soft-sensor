@@ -2,9 +2,38 @@
 ═══════════════════════════════════════════════════════════════════════════════
 Módulo: train_universal.py
 Proyecto: Universal Soft-Sensor
-Versión: 2.3.2 — BUGFIX
+Versión: 2.5.0
 
 HISTORIAL:
+    [v2.5.0 - 2026-07-21] [P0b ROADMAP]
+        [FEAT] Expuestos --group-column/--no-parse-dates/--permutation-test,
+               con fallback declarativo desde dataset_config.json
+               ("feature_engineering": group_column, parse_dates). Necesario
+               para datasets sin dimensión temporal con muestras agrupadas
+               (ej. GeoMet cobre: varias muestras por HOLEID) — sin esto,
+               el split ingenuo infla el R² por leakage de grupo.
+        [FIX] prepare_data_phase() escribía el CSV temporal SIEMPRE con
+               índice (df.to_csv(temp_path), default index=True). Para
+               datasets no-temporales el DataFrame no tiene índice
+               significativo (RangeIndex por defecto) — escribirlo colaba
+               una columna "Unnamed: 0" espuria que SoftSensorGP.load_data()
+               (con parse_dates=False, que ya no fuerza index_col) leería
+               como una feature más. Ahora solo se escribe el índice si es
+               significativo (no-RangeIndex).
+        [FEAT] test_size ahora se lee de dataset_config.json["training"]
+               (antes esa clave existía en el JSON pero nunca se consumía).
+
+    [v2.4.0 - 2026-07-21] [P0 ROADMAP]
+        [FEAT] Expuestos como CLI los toggles de feature engineering que antes
+               solo se podían cambiar editando train_model_phase() a mano:
+               --input-lags/--input-lag-periods/--input-lag-columns (lags de
+               ENTRADAS, no del target), --no-lags/--no-diffs (régimen
+               sensor-only para prognostics) y --strict-leakage.
+               También leen un default declarativo opcional desde el bloque
+               "feature_engineering" de dataset_config.json — consistente con
+               el principio del proyecto de "onboarding por config, no por
+               código" (ver CLAUDE.md). CLI > config > default de SoftSensorGP.
+
     [v2.3.2 - 2026]
         [FIX] Resource leak: temp file nunca se eliminaba.
               prepare_data_phase() creaba train_input_{timestamp}.csv en cada
@@ -18,7 +47,9 @@ HISTORIAL:
 """
 
 import sys
+import argparse
 import logging
+import pandas as pd
 from pathlib import Path
 from datetime import datetime
 
@@ -33,8 +64,61 @@ from core.models.gp_model import SoftSensorGP, ModelMetrics
 from config.settings import CONFIG
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("Trainer_v2.3.2")
+logger = logging.getLogger("Trainer_v2.5.0")
 console = Console()
+
+
+def parse_args() -> argparse.Namespace:
+    """
+    CLI del orquestador de entrenamiento.
+
+    [P0 ROADMAP] Antes de v2.4.0, los toggles de feature engineering
+    (lags de target vs. de entradas, diffs, strict_leakage) solo eran
+    accesibles editando train_model_phase() directamente — brecha señalada
+    en la auditoría del repo. Ahora son flags CLI, con default opcional
+    declarado en dataset_config.json (bloque "feature_engineering").
+
+    [P0b ROADMAP] Sumados --group-column/--no-parse-dates/--permutation-test
+    para datasets sin dimensión temporal con muestras agrupadas (ej. GeoMet
+    cobre: varias muestras por HOLEID).
+    """
+    parser = argparse.ArgumentParser(
+        description="Pipeline de entrenamiento Universal Soft-Sensor",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Ejemplos de uso:
+  python train_universal.py
+  python train_universal.py --input-lags --input-lag-periods 1,2,4,8
+  python train_universal.py --no-lags --no-diffs   # régimen sensor-only (RUL/prognostics)
+  python train_universal.py --group-column HOLEID --no-parse-dates \\
+      --permutation-test                            # [P0b] datos agrupados (GeoMet)
+        """
+    )
+    parser.add_argument("--no-lags", action="store_true",
+                       help="Desactivar lags DEL TARGET")
+    parser.add_argument("--no-diffs", action="store_true",
+                       help="Desactivar diffs/rolling DEL TARGET")
+    parser.add_argument("--input-lags", action="store_true",
+                       help="[P0] Activar lags de variables de ENTRADA")
+    parser.add_argument("--input-lag-periods", type=str, default=None,
+                       help="Periodos de lag de entrada, coma-separados (default: 1,2,3)")
+    parser.add_argument("--input-lag-columns", type=str, default=None,
+                       help="Columnas de entrada a laguear, coma-separadas "
+                            "(default: todas las numéricas de entrada)")
+    parser.add_argument("--strict-leakage", action="store_true",
+                       help="[SECURITY V2] Abortar (en vez de solo avisar) si se "
+                            "detecta una feature cuasi-idéntica al target")
+    parser.add_argument("--group-column", type=str, default=None,
+                       help="[P0b] Columna de agrupamiento (ej. HOLEID) para "
+                            "split/CV honesto vía GroupShuffleSplit/GroupKFold")
+    parser.add_argument("--no-parse-dates", action="store_true",
+                       help="[P0b] El dataset no tiene dimensión temporal real "
+                            "(ej. geometalúrgico) — desactiva diagnóstico de "
+                            "autocorrelación y subsampleo")
+    parser.add_argument("--permutation-test", action="store_true",
+                       help="[P0b] Correr permutation test (200 refits) tras "
+                            "entrenar y reportar el p-value")
+    return parser.parse_args()
 
 def prepare_data_phase() -> tuple:
     """
@@ -50,22 +134,32 @@ def prepare_data_phase() -> tuple:
     
     adapter = DataAdapter("dataset_config.json")
     df = adapter.load_data()
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     temp_path = CONFIG.DATA_PROCESSED_DIR / f"train_input_{timestamp}.csv"
-    df.to_csv(temp_path)
-    
+
+    # [P0b ROADMAP][FIX] Solo escribir el índice si es significativo (ej.
+    # DatetimeIndex que UniversalAdapter seteó desde timestamp_column). Con
+    # datasets sin dimensión temporal (parse_dates=False), el índice queda
+    # como RangeIndex por defecto — escribirlo colaría una columna
+    # "Unnamed: 0" espuria que luego se leería como feature.
+    has_meaningful_index = not isinstance(df.index, pd.RangeIndex)
+    df.to_csv(temp_path, index=has_meaningful_index)
+
     logger.info(f"✅ Datos preparados: {len(df)} registros listos para el modelo.")
     return temp_path, adapter.config, adapter
 
-def train_model_phase(data_path: Path, ad_config: dict) -> tuple:
+def train_model_phase(data_path: Path, ad_config: dict, args: argparse.Namespace = None) -> tuple:
     """
     FASE 2: Entrenamiento Predictivo.
-    
+
     Args:
         data_path: Ruta al CSV preparado en la Fase 1.
         ad_config: Configuración extraída del adaptador.
-        
+        args: Namespace de parse_args() con overrides de feature engineering.
+              Si None, se usan los defaults declarados en dataset_config.json
+              (o los de SoftSensorGP si tampoco están ahí).
+
     Returns:
         tuple: (modelo_entrenado, objeto_metricas)
     """
@@ -73,20 +167,79 @@ def train_model_phase(data_path: Path, ad_config: dict) -> tuple:
         "🧠 [bold yellow]FASE 2: ENTRENAMIENTO Y OPTIMIZACIÓN (GP)[/bold yellow]",
         border_style="yellow"
     ))
-    
+
     target = ad_config["modeling"]["target_column"]
-    
+
+    # ═══════════════════════════════════════════════════════════════════
+    # [P0 ROADMAP] Resolución de feature engineering: CLI > dataset_config.json
+    # ("feature_engineering" block) > default de SoftSensorGP. Esto respeta
+    # el principio declarativo del proyecto (onboarding por config) sin
+    # perder la posibilidad de override rápido por línea de comandos.
+    # ═══════════════════════════════════════════════════════════════════
+    fe_config = ad_config.get("feature_engineering", {})
+    args = args or argparse.Namespace(
+        no_lags=False, no_diffs=False, input_lags=False,
+        input_lag_periods=None, input_lag_columns=None, strict_leakage=False,
+        group_column=None, no_parse_dates=False, permutation_test=False
+    )
+
+    add_input_lags = args.input_lags or bool(fe_config.get("add_input_lags", False))
+
+    input_lag_periods = None
+    if args.input_lag_periods:
+        input_lag_periods = [int(p.strip()) for p in args.input_lag_periods.split(",")]
+    elif fe_config.get("input_lag_periods"):
+        input_lag_periods = list(fe_config["input_lag_periods"])
+
+    input_lag_columns = None
+    if args.input_lag_columns:
+        input_lag_columns = [c.strip() for c in args.input_lag_columns.split(",")]
+    elif fe_config.get("input_lag_columns"):
+        input_lag_columns = list(fe_config["input_lag_columns"])
+
+    strict_leakage = args.strict_leakage or bool(fe_config.get("strict_leakage", False))
+
+    # [P0b ROADMAP] group_column/parse_dates: CLI > dataset_config.json > default
+    group_column = getattr(args, "group_column", None) or fe_config.get("group_column")
+    parse_dates = fe_config.get("parse_dates", True)
+    if getattr(args, "no_parse_dates", False):
+        parse_dates = False
+
+    test_size = ad_config.get("training", {}).get("test_size", 0.2)
+
     model = SoftSensorGP(
         target_col=target,
+        add_lag_features=not args.no_lags,
+        add_diff_features=not args.no_diffs,
+        add_input_lags=add_input_lags,
+        input_lag_periods=input_lag_periods,
+        input_lag_columns=input_lag_columns,
+        parse_dates=parse_dates,
+        group_column=group_column,
+        strict_leakage=strict_leakage,
         use_fallback_model=True
     )
-    
+
+    if add_input_lags:
+        console.print(
+            f"[dim]   [P0] Lags de entrada activos — periodos: "
+            f"{model.input_lag_periods}, columnas: "
+            f"{input_lag_columns or 'todas las numéricas de entrada'}[/dim]"
+        )
+    if group_column:
+        console.print(
+            f"[dim]   [P0b] Split/CV por grupo ('{group_column}') — "
+            f"GroupShuffleSplit + GroupKFold interno[/dim]"
+        )
+
     metrics = model.train_from_file(
         filepath=str(data_path),
+        test_size=test_size,
         n_trials=CONFIG.GP_OPTUNA_TRIALS,
-        save_model=True
+        save_model=True,
+        run_permutation_test=getattr(args, "permutation_test", False)
     )
-    
+
     return model, metrics
 
 def report_phase(dataset_name: str, model: SoftSensorGP, metrics: ModelMetrics):
@@ -113,20 +266,27 @@ def report_phase(dataset_name: str, model: SoftSensorGP, metrics: ModelMetrics):
     table.add_row("R² Score (Precisión)", f"{r2:.4f}", status)
     table.add_row("MAPE (Error %)", f"{metrics.mape:.2f}%", "✅" if metrics.mape < 10 else "❗")
     table.add_row("Algoritmo Final", model.model_type, "🧠" if model.model_type == "GP" else "🌲")
-    
+    if metrics.permutation_p_value is not None:
+        p = metrics.permutation_p_value
+        table.add_row(
+            "p-value (permutation)", f"{p:.4f}",
+            "✅ señal real" if p < 0.05 else "⚠️ no distinguible de azar"
+        )
+
     console.print(table)
     console.print(f"\n[dim]Modelo guardado en: {CONFIG.MODELS_DIR}[/dim]")
 
 def main():
     """Punto de entrada principal del Pipeline."""
     temp_path = None  # [FIX] Inicializar antes del try para poder limpiar en finally
+    args = parse_args()
 
     try:
         console.print(Panel.fit(
-            "🚀 [bold blue]PIPELINE UNIVERSAL v2.3.2[/bold blue]\n"
+            "🚀 [bold blue]PIPELINE UNIVERSAL v2.4.0[/bold blue]\n"
             "[italic]Mining Architecture 4.0[/italic]"
         ))
-        
+
         console.print(
             f"[dim]⚙️ Config: Trials={CONFIG.GP_OPTUNA_TRIALS} | "
             f"Subsample={CONFIG.DEFAULT_SUBSAMPLE_STEP}[/dim]\n"
@@ -135,7 +295,7 @@ def main():
         # Ejecución de las 3 fases
         # [FIX] temp_path se captura aquí para poder limpiarla en el finally
         temp_path, config, adapter = prepare_data_phase()
-        model, metrics = train_model_phase(temp_path, config)
+        model, metrics = train_model_phase(temp_path, config, args=args)
         report_phase(config.get('dataset_name', 'Mining_Dataset'), model, metrics)
 
     except Exception as e:

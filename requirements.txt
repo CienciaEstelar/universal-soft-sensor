@@ -15,6 +15,10 @@ joblib>=1.3.0
 # Visualización
 matplotlib>=3.7.0
 seaborn>=0.12.0
+# SciencePlots: estilo de publicación (IEEE/Nature) para los gráficos de
+# entrenamiento y el informe científico (core/scientific_report.py). Opcional
+# en el sentido de que el pipeline no falla si falta — cae a seaborn-whitegrid.
+SciencePlots>=2.1.0
 
 # UI / Progress
 rich>=13.0.0

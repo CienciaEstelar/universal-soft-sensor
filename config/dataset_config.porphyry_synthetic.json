@@ -1,0 +1,49 @@
+{
+  "dataset_name": "porphyry_synthetic_garrido2020",
+  "description": "SINTÉTICO — NO es evidencia de negocio. Block model simulado de depósito pórfido de cobre (Garrido et al. 2020, Natural Resources Research, DOI 10.1007/s11053-020-09692-6; datos en github.com/exepulveda/geomet_datasets, CC BY-NC-SA 4.0). 147,231 filas (tras filtrar waste cu==0) x recuperación rougher (target: rec). Usado exclusivamente para probar si el método (GroupKFold/permutation test/features/fallback GP-GB) generaliza a un dataset de cobre 1600x más grande que GeoMet cobre real (n=92). Cualquier R² obtenido aquí NUNCA debe compararse directamente ni mezclarse con el resultado real de GeoMet (R²=0.319) sin la etiqueta explícita 'sintético'. Preparar con prepare_porphyry_synthetic_dataset.py antes de usar.",
+  "files": {
+    "filename": "porphyry_synthetic/block_model_filtered.csv",
+    "timestamp_column": "no_aplica_es_block_model_spatial_sin_tiempo",
+    "separator": ","
+  },
+  "modeling": {
+    "target_column": "rec",
+    "problem_type": "regression",
+    "notes": "rec = recuperación rougher (%) del bloque simulado. Filtrado cu>0.01 para evitar la trampa trivial waste->rec=0 (ver prepare_porphyry_synthetic_dataset.py)."
+  },
+  "feature_engineering": {
+    "include_patterns": [
+      "clays",
+      "chalcocite",
+      "bornite",
+      "chalcopyrite",
+      "tennantite",
+      "molibdenite",
+      "pyrite",
+      "cu",
+      "mo",
+      "as",
+      "bwi",
+      "ton"
+    ],
+    "exclude_patterns": [
+      "x",
+      "y",
+      "z"
+    ],
+    "forced_drop": [],
+    "group_column": null,
+    "parse_dates": false,
+    "notes": "Sin group_column: cada fila es un bloque espacial único post-interpolación geoestadística (no hay múltiples muestras compartiendo un mismo sondaje como en GeoMet/HOLEID), así que no aplica el mismo riesgo de leakage de grupo. Coordenadas x,y,z excluidas a propósito para mantener el régimen 'sensor-only' honesto (nada de posición espacial como proxy directo del target)."
+  },
+  "preprocessing": {
+    "handle_nulls": "none",
+    "handle_outliers": "robust_scaler",
+    "feature_scaling": "robust"
+  },
+  "training": {
+    "test_size": 0.2,
+    "validation_strategy": "random_shuffle_split",
+    "random_state": 42
+  }
+}

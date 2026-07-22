@@ -130,8 +130,20 @@ class UniversalAdapter:
         else:
             logger.warning(f"⚠️ La columna target '{target_col}' no está en el CSV.")
 
-        # Creamos un DF temporal solo con lo que pasó el filtro de inclusión
-        df_filtered = df[list(keep_cols)].copy()
+        # Creamos un DF temporal solo con lo que pasó el filtro de inclusión.
+        # [P0b ROADMAP][FIX] NO usar list(keep_cols): el orden de iteración de
+        # un set de strings en Python es no-determinista ENTRE PROCESOS (hash
+        # randomization, PYTHONHASHSEED aleatorio por defecto desde Py 3.3).
+        # Esto no es cosmético: remove_correlated_features() (más adelante en
+        # el pipeline) decide CUÁL de dos features >threshold correlacionadas
+        # sobrevive según el orden de columnas — con list(keep_cols), dos
+        # corridas del mismo dataset podían tirar una feature distinta y dar
+        # un R² distinto. Detectado con GeoMet cobre: una corrida tiraba
+        # "Si ppm", otra "Fe ppm", con R²=0.315 vs R²=0.167 respectivamente.
+        # Preservar el orden original de df.columns es determinista y además
+        # más predecible (ordenado como el CSV de origen).
+        keep_cols_ordered = [c for c in df.columns if c in keep_cols]
+        df_filtered = df[keep_cols_ordered].copy()
         
         # --- PASO 2: EXCLUSIÓN (Blacklist) ---
         # Eliminamos columnas que explícitamente no queremos (ej: ".output", fechas)
@@ -187,17 +199,30 @@ class UniversalAdapter:
                 df[ts_col] = pd.to_datetime(df[ts_col], errors='coerce')
 
         # 2. Configuración de Serie de Tiempo (Índice)
-        if ts_col in df.columns:
+        is_temporal = ts_col in df.columns
+        if is_temporal:
             df.set_index(ts_col, inplace=True)
             df.sort_index(inplace=True) # El tiempo debe ser lineal
-        
+
         # 3. Aplicar Inteligencia de Selección de Columnas
         df = self._apply_feature_selection(df)
-        
+
         # 4. Manejo Básico de Nulos (Imputación)
-        # Usamos 'ffill' (Forward Fill): Asumimos que si un sensor falla,
-        # el último valor válido se mantiene hasta que vuelva.
-        df = df.ffill().dropna()
+        # [P0b ROADMAP][FIX] 'ffill' (Forward Fill) asume que la fila anterior
+        # es el "último valor conocido" del MISMO sensor/proceso — válido en
+        # series temporales (ej. sensor falla, se mantiene el último dato
+        # hasta que vuelve). Para datasets SIN dimensión temporal (ej.
+        # geometalúrgicos: una fila = una muestra de sondaje, sin orden con
+        # significado), la fila "anterior" es una muestra de OTRO sondaje sin
+        # relación real — ffill fabricaría silenciosamente un valor prestado
+        # de una muestra distinta. Detectado con GeoMet cobre: "Carbono
+        # Grafite ppm" tiene 12/60 NaN y el ffill contaminaba filas de un
+        # HOLEID con el valor de otro. Sin timestamp real, se usa dropna()
+        # directo (honesto: pierde filas incompletas en vez de inventarlas).
+        if is_temporal:
+            df = df.ffill().dropna()
+        else:
+            df = df.dropna()
         
         logger.info(f"✅ Datos cargados exitosamente: {len(df):,} filas.")
         

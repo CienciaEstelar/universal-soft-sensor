@@ -95,7 +95,9 @@ from dataclasses import dataclass, field
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel
 from sklearn.preprocessing import RobustScaler
-from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection import (
+    TimeSeriesSplit, GroupKFold, KFold, GroupShuffleSplit, cross_val_predict
+)
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sklearn.ensemble import GradientBoostingRegressor
 
@@ -106,6 +108,12 @@ from rich.panel import Panel
 
 # Configuración centralizada del proyecto
 from config.settings import CONFIG
+from core.scientific_report import (
+    apply_scientific_style,
+    plot_permutation_test,
+    plot_feature_importance,
+    build_scientific_pdf,
+)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # CONFIGURACIÓN DEL MÓDULO
@@ -116,11 +124,11 @@ logger = logging.getLogger(__name__)
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-# Estilo de gráficos matplotlib
-try:
-    plt.style.use('seaborn-v0_8-whitegrid')
-except:
-    plt.style.use('ggplot')  # Fallback para versiones antiguas
+# [scientific_report] Estilo de gráficos: intenta SciencePlots (look de
+# publicación IEEE/Nature) primero, cae a seaborn-whitegrid si no está
+# instalado. Antes esto era un try/except inline duplicado aquí; ahora vive
+# en un solo lugar (core/scientific_report.py) para no divergir entre módulos.
+_ESTILO_GRAFICO_ACTIVO = apply_scientific_style()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -131,24 +139,35 @@ except:
 class ModelMetrics:
     """
     Contenedor de métricas de evaluación del modelo.
-    
+
     Attributes:
         r2: Coeficiente de determinación (1.0 = perfecto)
         rmse: Error cuadrático medio (menor = mejor)
         mae: Error absoluto medio
         mape: Error porcentual absoluto medio
+        permutation_p_value: [P0b ROADMAP] p-value del permutation test, si
+            se corrió (train_from_file(..., run_permutation_test=True)).
+            None si no se corrió. Un R² alto con p-value alto (>0.05) es la
+            firma clásica de sobreajuste/leakage — ver permutation_test().
     """
     r2: float = 0.0
     rmse: float = 0.0
     mae: float = 0.0
     mape: float = 0.0
-    
+    permutation_p_value: Optional[float] = None
+
     def to_dict(self) -> dict:
         """Convierte las métricas a diccionario (útil para JSON)."""
-        return {"r2": self.r2, "rmse": self.rmse, "mae": self.mae, "mape": self.mape}
-    
+        d = {"r2": self.r2, "rmse": self.rmse, "mae": self.mae, "mape": self.mape}
+        if self.permutation_p_value is not None:
+            d["permutation_p_value"] = self.permutation_p_value
+        return d
+
     def __repr__(self) -> str:
-        return f"R²={self.r2:.4f}, RMSE={self.rmse:.4f}, MAE={self.mae:.4f}"
+        base = f"R²={self.r2:.4f}, RMSE={self.rmse:.4f}, MAE={self.mae:.4f}"
+        if self.permutation_p_value is not None:
+            base += f", p-perm={self.permutation_p_value:.4f}"
+        return base
 
 
 @dataclass
@@ -206,13 +225,18 @@ class SoftSensorGP:
     """
     
     def __init__(
-        self, 
-        target_col: str = None, 
+        self,
+        target_col: str = None,
         random_state: int = 42,
         subsample_step: int = None,  # ← [v4.1.0] Si es None, usa CONFIG
         add_lag_features: bool = True,
         lag_periods: List[int] = None,
         add_diff_features: bool = True,
+        add_input_lags: bool = False,  # [P0 ROADMAP] lags de variables de ENTRADA
+        input_lag_periods: List[int] = None,
+        input_lag_columns: List[str] = None,
+        parse_dates: bool = True,  # [P0b ROADMAP] False para datasets sin dimensión temporal
+        group_column: str = None,  # [P0b ROADMAP] columna de agrupamiento (ej. HOLEID)
         use_fallback_model: bool = True,
         remove_constant_features: bool = True,
         remove_correlated_features: bool = True,
@@ -221,15 +245,42 @@ class SoftSensorGP:
     ):
         """
         Inicializa el Soft-Sensor.
-        
+
         Args:
             target_col: Columna objetivo a predecir. Si es None, usa CONFIG.GP_TARGET_COLUMN
             random_state: Semilla para reproducibilidad
             subsample_step: Cada cuántas filas tomar una muestra.
                            [v4.1.0] Si es None, usa CONFIG.DEFAULT_SUBSAMPLE_STEP
-            add_lag_features: Si True, agrega features de lag temporal
-            lag_periods: Lista de periodos de lag [1, 5, 10, 20] por defecto
-            add_diff_features: Si True, agrega diferencias y promedios móviles
+            add_lag_features: Si True, agrega features de lag temporal DEL TARGET
+            lag_periods: Lista de periodos de lag del target [1, 5, 10, 20] por defecto
+            add_diff_features: Si True, agrega diferencias y promedios móviles DEL TARGET
+            add_input_lags: [P0 ROADMAP] Si True, agrega lags de las variables de
+                           ENTRADA (no del target). Default False para no alterar el
+                           comportamiento/dimensionalidad de modelos existentes.
+                           Necesario en procesos con retardo/tiempo de residencia
+                           (ver ROADMAP.md P0: SRU dio R²=-0.47 sensor-only instantáneo
+                           porque el pipeline solo lageaba el target, nunca las entradas).
+            input_lag_periods: Periodos de lag para las entradas [1, 2, 3] por defecto.
+                           Intencionalmente más corto que lag_periods del target: modela
+                           retardo de proceso, no autocorrelación de largo plazo.
+            input_lag_columns: Columnas de entrada a laguear. Si None, se aplica a
+                           TODAS las columnas numéricas de entrada (el target nunca se
+                           incluye, y el guard de leakage + remove_correlated_features
+                           corren después para podar lo redundante).
+            parse_dates: [P0b ROADMAP] Si False, el índice del CSV NO se interpreta
+                           como fecha y se desactivan el diagnóstico de autocorrelación
+                           y el subsampleo temporal (ambos asumen dimensión temporal).
+                           Usar False para datasets geometalúrgicos/spatial sin tiempo
+                           (ej. una fila por sondaje/muestra, sin timestamp real).
+            group_column: [P0b ROADMAP] Nombre de columna de agrupamiento (ej. "HOLEID"
+                           en datos de sondajes). Si se especifica: (1) se excluye de
+                           las features, (2) el split train/test usa GroupShuffleSplit
+                           (ningún grupo aparece en ambos lados), (3) la CV interna de
+                           Optuna usa GroupKFold en vez de TimeSeriesSplit. Motivación:
+                           varias muestras del mismo sondaje están correlacionadas —
+                           un split que las separa entre train/test infla el R² por
+                           leakage de grupo (ver ROADMAP.md P0b y run_geomet_rigor.py,
+                           que casi reportó R²=0.93 falso en vez del 0.33 real).
             use_fallback_model: Si True, usa GradientBoosting cuando GP falla
             remove_constant_features: Si True, elimina features con std ≈ 0
             remove_correlated_features: Si True, elimina features muy correlacionados
@@ -255,11 +306,31 @@ class SoftSensorGP:
             self.subsample_step = CONFIG.DEFAULT_SUBSAMPLE_STEP
         # ═══════════════════════════════════════════════════════════════════
         
-        # Configuración de feature engineering
+        # Configuración de feature engineering (lags/diffs del TARGET)
         self.add_lag_features = add_lag_features
         self.lag_periods = lag_periods or [1, 5, 10, 20]
         self.add_diff_features = add_diff_features
-        
+
+        # ═══════════════════════════════════════════════════════════════════
+        # [P0 ROADMAP] Feature engineering de lags de ENTRADAS (no del target)
+        # ═══════════════════════════════════════════════════════════════════
+        # Motivación: el pipeline históricamente solo lageaba el target. En
+        # procesos con retardo/tiempo de residencia (ej. SRU, columnas de
+        # flotación) el efecto de un cambio de entrada aparece varios pasos
+        # DESPUÉS — sin historia de las entradas el modelo solo ve el estado
+        # instantáneo. Ver results/verification/ y ROADMAP.md P0.
+        # ═══════════════════════════════════════════════════════════════════
+        self.add_input_lags = add_input_lags
+        self.input_lag_periods = input_lag_periods or [1, 2, 3]
+        self.input_lag_columns = input_lag_columns  # None = todas las numéricas de entrada
+
+        # ═══════════════════════════════════════════════════════════════════
+        # [P0b ROADMAP] Datos no-temporales y split/CV por grupo
+        # ═══════════════════════════════════════════════════════════════════
+        self.parse_dates = parse_dates
+        self.group_column = group_column
+        self.groups_: Optional[np.ndarray] = None  # poblado por load_data() si hay group_column
+
         # Configuración de comportamiento
         self.use_fallback_model = use_fallback_model
         self.remove_constant_features = remove_constant_features
@@ -471,9 +542,71 @@ class SoftSensorGP:
             df[f'{y_col}_diff_5'] = y.shift(1) - y.shift(6)
             df[f'{y_col}_rolling_mean_10'] = y.shift(1).rolling(10, min_periods=1).mean()
             df[f'{y_col}_rolling_std_10'] = y.shift(1).rolling(10, min_periods=1).std()
-        
+
         return df
-    
+
+    def _create_input_lag_features(
+        self, df: pd.DataFrame, y_col: str, columns: List[str] = None
+    ) -> pd.DataFrame:
+        """
+        [P0 ROADMAP] Crea lags de las variables de ENTRADA (no del target).
+
+        A diferencia de `_create_lag_features` (que lagea el TARGET y por eso
+        necesita cuidado especial anti-leakage vía shift(1) en diffs/rolling),
+        laguear una columna de ENTRADA con shift(n), n>=1, es causal por
+        construcción: nunca usa información futura respecto al target en la
+        misma fila. No requiere el mismo blindaje, pero sí debe excluir
+        siempre al target (nunca se lagea el target aquí — eso ya lo hace
+        `_create_lag_features`).
+
+        Debe llamarse ANTES de `_create_lag_features` en `load_data()`, sobre
+        las columnas crudas: si corriera después, lagearía también las
+        columnas `{target}_lag_N`/`{target}_diff_N` ya creadas, produciendo
+        lags-de-lags sin sentido físico.
+
+        Args:
+            df: DataFrame con datos crudos (target + inputs), sin FE previo.
+            y_col: Columna objetivo — siempre excluida de `columns`.
+            columns: Columnas de entrada a laguear. Si None, usa TODAS las
+                columnas numéricas del DataFrame excepto el target. El guard
+                de leakage (`_drop_target_leakage`) y la poda de
+                correlacionados corren después en `load_data()`, así que un
+                exceso de columnas generadas aquí se filtra automáticamente.
+
+        Returns:
+            DataFrame con columnas adicionales `'{col}_lag_{n}'` por cada
+            columna de entrada y periodo en `self.input_lag_periods`. Si
+            `self.add_input_lags` es False, retorna `df` sin modificar.
+        """
+        if not self.add_input_lags:
+            return df
+
+        df = df.copy()
+
+        if columns is None:
+            # [P0b] group_column (ej. HOLEID) nunca se lagea por defecto: es un
+            # identificador, no una señal de proceso — lagearlo produce ruido.
+            excluded = {y_col}
+            if self.group_column:
+                excluded.add(self.group_column)
+            target_columns = [
+                c for c in df.columns
+                if c not in excluded and pd.api.types.is_numeric_dtype(df[c])
+            ]
+        else:
+            # Filtra a columnas presentes en df y nunca incluye al target,
+            # aunque el caller lo haya pasado por error en `columns`.
+            target_columns = [
+                c for c in columns
+                if c in df.columns and c != y_col and c != self.group_column
+            ]
+
+        for col in target_columns:
+            for lag in self.input_lag_periods:
+                df[f'{col}_lag_{lag}'] = df[col].shift(lag)
+
+        return df
+
     # ═══════════════════════════════════════════════════════════════════════
     # MÉTODO PRINCIPAL: CARGA DE DATOS
     # ═══════════════════════════════════════════════════════════════════════
@@ -517,17 +650,37 @@ class SoftSensorGP:
         self.console.print(f"[dim]   Archivo: {total_rows:,} filas totales[/dim]")
         
         # Leer CSV
-        df = pd.read_csv(
-            filepath, 
-            index_col=0,
-            parse_dates=True,
-            skiprows=range(1, skip_rows + 1) if skip_rows > 0 else None
-        )
-        
+        # [P0b ROADMAP] Con parse_dates=True (default): la primera columna se
+        # asume índice temporal (index_col=0), comportamiento original. Con
+        # parse_dates=False (datasets sin dimensión temporal, ej.
+        # geometalúrgicos): NO se fuerza ninguna columna como índice — si se
+        # forzara index_col=0 igual, la primera columna (a veces el propio
+        # group_column, ej. HOLEID) desaparecería de df.columns antes de
+        # poder usarse como grupo.
+        if self.parse_dates:
+            df = pd.read_csv(
+                filepath,
+                index_col=0,
+                parse_dates=True,
+                skiprows=range(1, skip_rows + 1) if skip_rows > 0 else None
+            )
+        else:
+            df = pd.read_csv(
+                filepath,
+                skiprows=range(1, skip_rows + 1) if skip_rows > 0 else None
+            )
+
         # Validar que existe el target
         if self.target_col not in df.columns:
             raise ValueError(
                 f"Target '{self.target_col}' no encontrado en el dataset.\n"
+                f"Columnas disponibles: {list(df.columns[:10])}..."
+            )
+
+        # [P0b ROADMAP] Validar que la columna de agrupamiento existe, si se pidió.
+        if self.group_column and self.group_column not in df.columns:
+            raise ValueError(
+                f"group_column '{self.group_column}' no encontrada en el dataset.\n"
                 f"Columnas disponibles: {list(df.columns[:10])}..."
             )
 
@@ -565,54 +718,76 @@ class SoftSensorGP:
         # ═══════════════════════════════════════════════════════════════════
         # DIAGNÓSTICO DE AUTOCORRELACIÓN
         # ═══════════════════════════════════════════════════════════════════
-        self.console.print(f"\n[bold yellow]🔬 Diagnóstico de Autocorrelación:[/bold yellow]")
-        self.data_diagnosis = self._diagnose_data(df[self.target_col])
-        
-        # Mostrar diagnóstico en tabla bonita
-        diag_table = Table(show_header=False, box=None, padding=(0, 2))
-        diag_table.add_row("Autocorr lag-1:", f"{self.data_diagnosis['autocorr_1']:.4f}")
-        diag_table.add_row("Autocorr lag-50:", f"{self.data_diagnosis['autocorr_50']:.4f}")
-        
-        sev = self.data_diagnosis['severity']
-        sev_color = "red" if sev == "CRÍTICA" else "yellow" if sev in ["ALTA", "MODERADA"] else "green"
-        diag_table.add_row("Severidad:", f"[{sev_color}]{sev}[/{sev_color}]")
-        diag_table.add_row("Subsample recomendado:", f"cada {self.data_diagnosis['recommended_subsample']}")
-        self.console.print(diag_table)
-        
-        # Aviso (NO destructivo) si la autocorrelación es crítica.
-        # En ML supervisado para series temporales, alta autocorrelación NO
-        # justifica diezmar: el modelo aprende pares (X, y), no requiere
-        # independencia. Subsamplear elimina dinámica fina y desalinea train
-        # vs inference (esta última no subsamplea).  Por eso solo emitimos
-        # un warning y respetamos el valor del usuario.
-        if self.data_diagnosis["autocorr_1"] > 0.98:
-            recommended = self.data_diagnosis["recommended_subsample"]
-            if self.subsample_step < recommended:
+        # [P0b ROADMAP] Autocorrelación y subsampleo asumen orden cronológico.
+        # Con parse_dates=False (datasets geometalúrgicos/spatial, una fila =
+        # una muestra sin tiempo real) ambos conceptos no aplican: se saltan
+        # explícitamente en vez de calcular un número sin sentido físico.
+        if self.parse_dates:
+            self.console.print(f"\n[bold yellow]🔬 Diagnóstico de Autocorrelación:[/bold yellow]")
+            self.data_diagnosis = self._diagnose_data(df[self.target_col])
+
+            # Mostrar diagnóstico en tabla bonita
+            diag_table = Table(show_header=False, box=None, padding=(0, 2))
+            diag_table.add_row("Autocorr lag-1:", f"{self.data_diagnosis['autocorr_1']:.4f}")
+            diag_table.add_row("Autocorr lag-50:", f"{self.data_diagnosis['autocorr_50']:.4f}")
+
+            sev = self.data_diagnosis['severity']
+            sev_color = "red" if sev == "CRÍTICA" else "yellow" if sev in ["ALTA", "MODERADA"] else "green"
+            diag_table.add_row("Severidad:", f"[{sev_color}]{sev}[/{sev_color}]")
+            diag_table.add_row("Subsample recomendado:", f"cada {self.data_diagnosis['recommended_subsample']}")
+            self.console.print(diag_table)
+
+            # Aviso (NO destructivo) si la autocorrelación es crítica.
+            # En ML supervisado para series temporales, alta autocorrelación NO
+            # justifica diezmar: el modelo aprende pares (X, y), no requiere
+            # independencia. Subsamplear elimina dinámica fina y desalinea train
+            # vs inference (esta última no subsamplea).  Por eso solo emitimos
+            # un warning y respetamos el valor del usuario.
+            if self.data_diagnosis["autocorr_1"] > 0.98:
+                recommended = self.data_diagnosis["recommended_subsample"]
+                if self.subsample_step < recommended:
+                    self.console.print(
+                        f"[yellow]   ⚠️  Autocorrelación lag-1 = "
+                        f"{self.data_diagnosis['autocorr_1']:.4f} (CRÍTICA). "
+                        f"Subsample del usuario = {self.subsample_step}. "
+                        f"Si la dinámica del proceso es muy lenta, evaluar "
+                        f"manualmente subsample ≈ {recommended}.[/yellow]"
+                    )
+
+            # ═══════════════════════════════════════════════════════════════
+            # SUBSAMPLEO TEMPORAL
+            # ═══════════════════════════════════════════════════════════════
+            # Default = 1 (sin subsampling). En ML supervisado, subsamplear una
+            # serie para "descorrelacionar" es un anti-patrón heredado de la
+            # inferencia estadística clásica: aquí solo destruye señal y crea
+            # desalineación con la inferencia (que no subsamplea). Mantener > 1
+            # solo si se quiere reducir el costo cuadrático del GP.
+            if self.subsample_step > 1:
+                df = df.iloc[::self.subsample_step]
                 self.console.print(
-                    f"[yellow]   ⚠️  Autocorrelación lag-1 = "
-                    f"{self.data_diagnosis['autocorr_1']:.4f} (CRÍTICA). "
-                    f"Subsample del usuario = {self.subsample_step}. "
-                    f"Si la dinámica del proceso es muy lenta, evaluar "
-                    f"manualmente subsample ≈ {recommended}.[/yellow]"
+                    f"[dim]   Subsampleado 1/{self.subsample_step}: {len(df):,} filas[/dim]"
+                )
+        else:
+            self.data_diagnosis = {"skipped_non_temporal": True}
+            self.console.print(
+                "[dim]   parse_dates=False: diagnóstico de autocorrelación y "
+                "subsampleo temporal omitidos (no aplican sin dimensión "
+                "temporal).[/dim]"
+            )
+            if self.subsample_step > 1:
+                self.console.print(
+                    f"[yellow]   ⚠️  subsample_step={self.subsample_step} se ignora "
+                    f"con parse_dates=False (no hay orden cronológico que "
+                    f"diezmar).[/yellow]"
                 )
 
         # ═══════════════════════════════════════════════════════════════════
-        # SUBSAMPLEO TEMPORAL
-        # ═══════════════════════════════════════════════════════════════════
-        # Default = 1 (sin subsampling). En ML supervisado, subsamplear una
-        # serie para "descorrelacionar" es un anti-patrón heredado de la
-        # inferencia estadística clásica: aquí solo destruye señal y crea
-        # desalineación con la inferencia (que no subsamplea). Mantener > 1
-        # solo si se quiere reducir el costo cuadrático del GP.
-        if self.subsample_step > 1:
-            df = df.iloc[::self.subsample_step]
-            self.console.print(
-                f"[dim]   Subsampleado 1/{self.subsample_step}: {len(df):,} filas[/dim]"
-            )
-        
-        # ═══════════════════════════════════════════════════════════════════
         # FEATURE ENGINEERING
         # ═══════════════════════════════════════════════════════════════════
+        # [P0 ROADMAP] Lags de ENTRADAS primero, sobre columnas crudas —
+        # antes de que _create_lag_features agregue columnas derivadas del
+        # target (evitaría laguear lags/diffs sin sentido físico).
+        df = self._create_input_lag_features(df, self.target_col, columns=self.input_lag_columns)
         df = self._create_lag_features(df, self.target_col)
         df = df.dropna()  # Los lags crean NaNs al inicio
         self.console.print(
@@ -623,7 +798,17 @@ class SoftSensorGP:
         # SEPARAR X e Y
         # ═══════════════════════════════════════════════════════════════════
         y_series = df[self.target_col]
-        
+
+        # [P0b ROADMAP] Extraer la columna de agrupamiento ANTES de dropearla
+        # de X. Se captura acá (post feature-engineering + dropna) para que
+        # quede alineada fila a fila con X/y finales. Se usa en train_from_file
+        # para un split honesto (GroupShuffleSplit) y en _train_gp para
+        # GroupKFold en la CV interna de Optuna.
+        if self.group_column:
+            self.groups_ = df[self.group_column].values
+        else:
+            self.groups_ = None
+
         # ═══════════════════════════════════════════════════════════════════
         # [v4.1.0] FIX: Eliminado hardcode de "_iron_concentrate"
         # ═══════════════════════════════════════════════════════════════════
@@ -631,12 +816,16 @@ class SoftSensorGP:
         #   drop_cols = [self.target_col, "_iron_concentrate"]  # ❌ Hardcode
         #
         # AHORA:
-        #   Solo eliminamos el target. El sistema de remove_correlated_features
-        #   se encargará de eliminar columnas redundantes automáticamente.
-        #   Esto hace que el código sea verdaderamente "universal" y funcione
-        #   con cualquier dataset minero (hierro, oro, cobre, etc.)
+        #   Solo eliminamos el target (y, si aplica, group_column — es un
+        #   identificador, no una feature de proceso). El sistema de
+        #   remove_correlated_features se encarga de eliminar columnas
+        #   redundantes automáticamente. Esto hace que el código sea
+        #   verdaderamente "universal" y funcione con cualquier dataset
+        #   minero (hierro, oro, cobre, etc.)
         # ═══════════════════════════════════════════════════════════════════
         drop_cols = [self.target_col]  # ✅ Solo el target, nada hardcodeado
+        if self.group_column:
+            drop_cols.append(self.group_column)
         X_df = df.drop(columns=[c for c in drop_cols if c in df.columns])
         # ═══════════════════════════════════════════════════════════════════
 
@@ -679,29 +868,37 @@ class SoftSensorGP:
     # ═══════════════════════════════════════════════════════════════════════
     
     def _train_gp(
-        self, 
-        X_train: np.ndarray, 
-        y_train: np.ndarray, 
-        n_trials: int
+        self,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        n_trials: int,
+        groups: np.ndarray = None
     ) -> Tuple[any, Dict, float]:
         """
         Entrena Gaussian Process con optimización bayesiana de hiperparámetros.
-        
+
         Usa Optuna para encontrar los mejores valores de:
         - alpha: ruido de regularización
         - length_scale: escala del kernel Matern
         - nu: suavidad del kernel (1.5 o 2.5)
         - noise_level: ruido del kernel WhiteKernel
-        
+
         Args:
             X_train: Features de entrenamiento (escalados)
             y_train: Target de entrenamiento (escalado)
             n_trials: Número de trials de optimización
-            
+            groups: [P0b ROADMAP] Si se pasa (alineado fila a fila con
+                X_train/y_train), la CV interna usa GroupKFold en vez de
+                TimeSeriesSplit — ningún grupo aparece en train y validación
+                del mismo fold. Necesario cuando las filas no son una serie
+                temporal sino muestras agrupadas (ej. varias muestras por
+                sondaje/HOLEID), donde TimeSeriesSplit no tiene sentido y
+                un split que mezcla el mismo grupo infla el R² por leakage.
+
         Returns:
             Tuple de (modelo_sin_entrenar, mejores_params, score_cv)
         """
-        
+
         def objective(trial):
             """Función objetivo para Optuna."""
             # Sugerir hiperparámetros
@@ -730,16 +927,30 @@ class SoftSensorGP:
             step = max(1, len(X_train) // max_samples)
             X_opt = X_train[::step][:max_samples]
             y_opt = y_train[::step][:max_samples]
-            
-            # Cross-validation temporal (respeta orden cronológico).
-            # TimeSeriesSplit requiere n_samples >= n_splits + 1; en datasets
-            # post-FE muy reducidos (ej. tests sintéticos) puede fallar, así
-            # que ajustamos n_splits dinámicamente.
-            n_splits = min(3, max(2, len(X_opt) - 1))
-            tscv = TimeSeriesSplit(n_splits=n_splits)
+
+            # [P0b ROADMAP] Cross-validation: GroupKFold si hay grupos (datos
+            # no-temporales/agrupados), TimeSeriesSplit si no (comportamiento
+            # original, respeta orden cronológico). Ambos requieren
+            # n_samples/n_grupos >= n_splits + 1 aprox.; en datasets post-FE
+            # muy reducidos (ej. tests sintéticos, GeoMet n=53) ajustamos
+            # n_splits dinámicamente y clampeamos al Nº de grupos únicos.
+            if groups is not None:
+                groups_opt = groups[::step][:max_samples]
+                n_groups_opt = len(np.unique(groups_opt))
+                n_splits = max(2, min(3, n_groups_opt))
+                if n_splits > n_groups_opt or n_groups_opt < 2:
+                    # Muy pocos grupos para una CV con sentido — señal de
+                    # fallo al caller en vez de un GroupKFold inválido.
+                    return -1.0
+                cv = GroupKFold(n_splits=n_splits)
+                split_iter = cv.split(X_opt, y_opt, groups=groups_opt)
+            else:
+                n_splits = min(3, max(2, len(X_opt) - 1))
+                cv = TimeSeriesSplit(n_splits=n_splits)
+                split_iter = cv.split(X_opt)
+
             scores = []
-            
-            for train_idx, test_idx in tscv.split(X_opt):
+            for train_idx, test_idx in split_iter:
                 try:
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
@@ -749,7 +960,7 @@ class SoftSensorGP:
                     scores.append(max(score, -1.0))  # Clamp negatives
                 except:
                     return -1.0
-            
+
             return np.mean(scores)
         
         # Ejecutar optimización con sampler seedeado para reproducibilidad
@@ -841,35 +1052,38 @@ class SoftSensorGP:
         return model, params
     
     def optimize_and_train(
-        self, 
-        X: np.ndarray, 
-        y: np.ndarray, 
-        n_trials: int = None
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        n_trials: int = None,
+        groups: np.ndarray = None
     ) -> None:
         """
         Optimiza hiperparámetros y entrena el modelo final.
-        
+
         Pipeline:
         1. Optimizar GP con Optuna
         2. Evaluar CV score
         3. Si CV < 0.6, cambiar a GradientBoosting
         4. Entrenar modelo final con todos los datos
-        
+
         Args:
             X: Features escalados
             y: Target escalado
             n_trials: Número de trials Optuna (usa CONFIG si es None)
+            groups: [P0b ROADMAP] Grupos alineados con X/y para GroupKFold en
+                la CV interna (ver _train_gp). None = comportamiento original.
         """
         n_trials = n_trials or CONFIG.GP_OPTUNA_TRIALS
         max_samples = CONFIG.GP_MAX_TRAIN_SAMPLES
-        
+
         self.console.print(
             f"\n[bold yellow]⚡ Optimizando Gaussian Process "
             f"({n_trials} trials)...[/bold yellow]"
         )
-        
+
         # Fase 1: Optimización
-        model, params, cv_score = self._train_gp(X, y, n_trials)
+        model, params, cv_score = self._train_gp(X, y, n_trials, groups=groups)
         
         self.console.print(f"\n[bold]CV Score: R² = {cv_score:.4f}[/bold]")
         
@@ -1133,31 +1347,51 @@ class SoftSensorGP:
     # ═══════════════════════════════════════════════════════════════════════
     
     def generate_report(
-        self, 
-        y_true, 
-        y_pred, 
-        y_std, 
-        dates, 
-        output_dir=None
+        self,
+        y_true,
+        y_pred,
+        y_std,
+        dates,
+        output_dir=None,
+        X_test=None,
+        y_test_for_importance=None,
+        permutation_result: Optional[Dict] = None,
     ) -> List[str]:
         """
-        Genera gráficos de diagnóstico del modelo.
-        
-        Crea un panel con 4 gráficos:
+        Genera gráficos de diagnóstico del modelo y, si hay suficiente
+        información disponible, un informe científico consolidado en PDF.
+
+        Siempre genera (comportamiento previo, sin cambios):
         1. Serie temporal: predicción vs real
         2. Scatter plot: correlación predicho vs real
         3. Histograma de errores
         4. Residuos vs predicción
-        
+
+        [scientific_report] Adicionalmente, si se pasan los argumentos
+        opcionales, genera y ensambla en un único PDF:
+        5. Gráfico de test de permutación (distribución nula vs. R² real) —
+           requiere `permutation_result` con clave 'null_r2_distribution'
+           (ver `permutation_test()`).
+        6. Gráfico de importancia de features (permutation importance,
+           model-agnóstico) — requiere `X_test` y `y_test_for_importance`
+           en la MISMA escala con la que se entrenó `self.model`.
+
+        Backward compatible: si no se pasan los argumentos nuevos, el
+        comportamiento y el valor de retorno son idénticos a antes (solo el
+        PNG del panel de diagnóstico).
+
         Args:
             y_true: Valores reales
             y_pred: Valores predichos
             y_std: Desviación estándar de predicciones
             dates: Índice temporal
             output_dir: Directorio de salida
-            
+            X_test: Features de test (escaladas), para importancia de features
+            y_test_for_importance: Target de test, en la escala de self.model
+            permutation_result: Dict retornado por `self.permutation_test()`
+
         Returns:
-            Lista de rutas de archivos generados
+            Lista de rutas de archivos generados (PNGs + PDF si aplica)
         """
         output_dir = Path(output_dir or CONFIG.RESULTS_DIR)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1179,7 +1413,8 @@ class SoftSensorGP:
                 color='red', alpha=0.15, label='IC 95%'
             )
         
-        axes[0, 0].set_title(f'Serie Temporal ({self.model_type})')
+        serie_label = "Serie Temporal" if self.parse_dates else "Serie (orden de fila, sin tiempo real)"
+        axes[0, 0].set_title(f'{serie_label} ({self.model_type})')
         axes[0, 0].legend()
         axes[0, 0].grid(True, alpha=0.3)
         
@@ -1216,46 +1451,193 @@ class SoftSensorGP:
         # Guardar figura
         path = output_dir / f"{self.model_type.lower()}_report_{timestamp}.png"
         plt.savefig(path, dpi=150, bbox_inches='tight')
-        plt.close()
-        
+        # [scientific_report] No cerramos `fig` todavía — si se ensambla el
+        # PDF consolidado más abajo, se reutiliza esta figura ya renderizada
+        # en vez de releer el PNG desde disco (más rápido, sin doble
+        # rasterizado). Se cierra al final de este método en cualquier caso.
+
         self.console.print(f"[green]📊 Reporte guardado: {path}[/green]")
-        
-        return [str(path)]
+
+        generated_paths = [str(path)]
+        figures_for_pdf = [fig]
+
+        # [scientific_report] Informe científico consolidado — solo si hay
+        # información suficiente (no rompe el uso previo del método si no).
+        permutation_png = None
+        permutation_fig = None
+        if permutation_result and "null_r2_distribution" in permutation_result:
+            try:
+                permutation_png_path = output_dir / f"{self.model_type.lower()}_permutation_{timestamp}.png"
+                permutation_png, permutation_fig = plot_permutation_test(
+                    null_r2_distribution=permutation_result["null_r2_distribution"],
+                    real_r2=permutation_result["real_r2"],
+                    p_value=permutation_result["p_value"],
+                    target_col=self.target_col,
+                    output_path=permutation_png_path,
+                    keep_open=True,
+                )
+                generated_paths.append(permutation_png)
+                figures_for_pdf.append(permutation_fig)
+            except Exception as e:
+                logger.warning(f"No se pudo generar el gráfico de permutación: {e}")
+                permutation_png = None
+
+        importance_png = None
+        importance_fig = None
+        if X_test is not None and y_test_for_importance is not None and self.model is not None:
+            try:
+                importance_png_path = output_dir / f"{self.model_type.lower()}_importance_{timestamp}.png"
+                importance_png, importance_fig = plot_feature_importance(
+                    model=self.model,
+                    X_test=X_test,
+                    y_test=y_test_for_importance,
+                    feature_names=self.feature_names,
+                    output_path=importance_png_path,
+                    keep_open=True,
+                )
+                generated_paths.append(importance_png)
+                figures_for_pdf.append(importance_fig)
+            except Exception as e:
+                logger.warning(f"No se pudo generar el gráfico de importancia de features: {e}")
+                importance_png = None
+
+        if permutation_png is not None or importance_png is not None:
+            try:
+                metadata = {
+                    "dataset/target": self.target_col,
+                    "modelo": self.model_type,
+                    "estilo_grafico": _ESTILO_GRAFICO_ACTIVO,
+                    "fecha_generacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "semilla_aleatoria": self.random_state,
+                    "n_features": len(self.feature_names) if self.feature_names else "N/D",
+                    "parse_dates": self.parse_dates,
+                    "group_column": self.group_column,
+                }
+                metrics_rows = [
+                    ("R² Score (holdout)", f"{self.metrics.r2:.4f}", "Excelente" if self.metrics.r2 > 0.8 else "Bueno" if self.metrics.r2 > 0.6 else "Moderado/Pobre"),
+                    ("RMSE", f"{self.metrics.rmse:.4f}", "Error típico"),
+                    ("MAE", f"{self.metrics.mae:.4f}", "Error absoluto promedio"),
+                    ("MAPE", f"{self.metrics.mape:.2f}%", "Error porcentual"),
+                ]
+                if permutation_result:
+                    # [scientific_report] R² agregado sobre el dataset completo
+                    # (cross_val_predict + GroupKFold), el mismo número que el
+                    # R² holdout de arriba pero calculado con un protocolo más
+                    # robusto (todas las filas participan de test en algún
+                    # fold). Se muestra por separado y con etiqueta explícita
+                    # para no confundirlo con el holdout — son dos protocolos
+                    # de evaluación válidos, no dos resultados contradictorios.
+                    metrics_rows.append((
+                        "R² agregado (CV, dataset completo)",
+                        f"{permutation_result['real_r2']:.4f}",
+                        "Protocolo oficial de reconciliación — ver ROADMAP.md",
+                    ))
+                    verdict = "señal real" if permutation_result["p_value"] < 0.05 else "no distinguible de azar"
+                    metrics_rows.append((
+                        "p-value (permutation)",
+                        f"{permutation_result['p_value']:.4f}",
+                        verdict,
+                    ))
+
+                pdf_path = output_dir / f"informe_cientifico_{self.model_type.lower()}_{timestamp}.pdf"
+                build_scientific_pdf(
+                    output_path=pdf_path,
+                    metadata=metadata,
+                    metrics_rows=metrics_rows,
+                    figures=figures_for_pdf,  # cierra las figuras al terminar
+                )
+                figures_for_pdf = []  # ya cerradas por build_scientific_pdf
+                generated_paths.append(str(pdf_path))
+                self.console.print(f"[bold green]📄 Informe científico (PDF): {pdf_path}[/bold green]")
+            except Exception as e:
+                logger.warning(f"No se pudo ensamblar el informe científico PDF: {e}")
+
+        # Cerrar cualquier figura que haya quedado abierta (ej. si el PDF no
+        # se ensambló porque no había permutation_result ni X_test).
+        for f in figures_for_pdf:
+            plt.close(f)
+
+        return generated_paths
     
     # ═══════════════════════════════════════════════════════════════════════
     # PIPELINE COMPLETO
     # ═══════════════════════════════════════════════════════════════════════
     
     def train_from_file(
-        self, 
-        filepath=None, 
-        test_size=0.2, 
-        n_trials=None, 
-        save_model=True
+        self,
+        filepath=None,
+        test_size=0.2,
+        n_trials=None,
+        save_model=True,
+        run_permutation_test=False,
+        output_dir=None,
     ) -> ModelMetrics:
         """
         Pipeline completo: carga datos, entrena, evalúa y guarda.
-        
+
         Este es el método principal para uso típico. Ejecuta todos los
         pasos necesarios de principio a fin.
-        
+
         Args:
             filepath: Ruta al CSV. Si None, usa CONFIG.DATA_CLEAN_PATH
             test_size: Proporción de datos para test (default 20%)
             n_trials: Número de trials Optuna
             save_model: Si True, guarda el modelo entrenado
-            
+            output_dir: Directorio donde generate_report() escribe PNGs/PDF.
+                Si None (default), usa CONFIG.RESULTS_DIR — el comportamiento
+                de producción de siempre. Los TESTS deben pasar `tmp_path`
+                acá explícitamente para no ensuciar los resultados reales del
+                proyecto con PDFs/PNGs de corridas sintéticas (ver
+                tests/conftest.py::trained_model y demás fixtures/tests que
+                llaman train_from_file()).
+            run_permutation_test: [P0b ROADMAP] Si True, corre permutation_test()
+                sobre el DATASET COMPLETO (X, y, groups — antes del split
+                train/test; 200 refits de un GB fijo, con GroupKFold si hay
+                group_column) y adjunta el p-value a metrics.permutation_p_value.
+                Usar el dataset completo (no solo el subset de entrenamiento)
+                es intencional: reproduce el mismo protocolo agregado
+                (cross_val_predict + GroupKFold) con el que se confirmó el
+                R²=0.319 oficial en results/verification/geomet_pipeline_reconciliation_v2.json
+                — así el R² que reporta este método es comparable al número
+                ya documentado, en vez de un R² más ruidoso calculado sobre
+                un subset más chico de grupos. GradientBoosting es invariante
+                a escala, así que no hace falta re-escalar X. Default False:
+                es caro (200 refits) y no siempre necesario — activarlo cuando
+                se necesite descartar sobreajuste/leakage explícitamente (ej.
+                datasets chicos como GeoMet).
+
         Returns:
             ModelMetrics con los resultados de evaluación
         """
         # Paso 1: Cargar y preparar datos (X, y SIN escalar)
         X, y, dates = self.load_data(filepath)
+        groups = self.groups_  # None salvo que group_column esté configurado
 
-        # Paso 2: Split temporal (respeta orden cronológico)
-        test_idx = int(len(X) * (1 - test_size))
-        X_train, X_test = X[:test_idx], X[test_idx:]
-        y_train, y_test = y[:test_idx], y[test_idx:]
-        dates_test = dates[test_idx:]
+        # ═══════════════════════════════════════════════════════════════════
+        # Paso 2: Split train/test
+        # ═══════════════════════════════════════════════════════════════════
+        # [P0b ROADMAP] Con group_column: split por GRUPO (GroupShuffleSplit)
+        # — ningún grupo (ej. HOLEID) queda partido entre train y test. Sin
+        # group_column: comportamiento original, split secuencial que respeta
+        # orden cronológico.
+        if groups is not None:
+            gss = GroupShuffleSplit(n_splits=1, test_size=test_size, random_state=self.random_state)
+            train_idx, test_idx_arr = next(gss.split(X, y, groups=groups))
+            X_train, X_test = X[train_idx], X[test_idx_arr]
+            y_train, y_test = y[train_idx], y[test_idx_arr]
+            dates_test = dates[test_idx_arr]
+            groups_train = groups[train_idx]
+            self.console.print(
+                f"[dim]   [P0b] Split por grupo ('{self.group_column}'): "
+                f"{len(np.unique(groups_train))} grupos en train, "
+                f"{len(np.unique(groups[test_idx_arr]))} en test (sin solapamiento)[/dim]"
+            )
+        else:
+            test_idx = int(len(X) * (1 - test_size))
+            X_train, X_test = X[:test_idx], X[test_idx:]
+            y_train, y_test = y[:test_idx], y[test_idx:]
+            dates_test = dates[test_idx:]
+            groups_train = None
 
         # Paso 3: Escalar — fit SOLO con train, transform en test (anti-leakage).
         X_train_s = self.scaler_X.fit_transform(X_train)
@@ -1263,41 +1645,172 @@ class SoftSensorGP:
         y_train_s = self.scaler_y.fit_transform(y_train)
 
         # Paso 4: Entrenar (en escala escalada)
-        self.optimize_and_train(X_train_s, y_train_s, n_trials=n_trials)
+        self.optimize_and_train(X_train_s, y_train_s, n_trials=n_trials, groups=groups_train)
 
         # Paso 5: Evaluar en test set (y_test ya está en escala original)
         y_test_real = y_test.ravel()
         y_pred, y_std = self.predict(X_test_s)
         metrics = self.evaluate(y_test_real, y_pred)
-        
+
+        # [P0b ROADMAP] Permutation test opcional sobre el DATASET COMPLETO
+        # (X, y, groups — no solo X_train) — mismo protocolo agregado
+        # (cross_val_predict + GroupKFold) usado en la reconciliación oficial
+        # (results/verification/geomet_pipeline_reconciliation_v2.json), para
+        # que el R² reportado acá sea el mismo número, no uno distinto
+        # calculado sobre un subset más chico y más ruidoso de grupos.
+        perm_result = None  # [scientific_report] definido siempre: generate_report() lo acepta como None sin problema
+        if run_permutation_test:
+            self.console.print(
+                "\n[bold yellow]🎲 Permutation test (200 refits sobre el dataset completo, puede tardar)...[/bold yellow]"
+            )
+            perm_result = self.permutation_test(X, y.ravel(), groups=groups)
+            metrics.permutation_p_value = perm_result["p_value"]
+            verdict = "✅ señal real" if perm_result["p_value"] < 0.05 else "🔴 no distinguible de azar"
+            self.console.print(
+                f"[dim]   p-value={perm_result['p_value']:.4f} "
+                f"(R² agregado, dataset completo={perm_result['real_r2']:.4f}) → {verdict}[/dim]"
+            )
+
         # Mostrar resultados
         self.console.print("\n" + "=" * 50)
         self.console.print(f"[bold]🏆 RESULTADOS FINALES ({self.model_type})[/bold]")
         self.console.print("=" * 50)
-        
+
         table = Table(header_style="bold green")
         table.add_column("Métrica")
         table.add_column("Valor")
         table.add_column("Interpretación")
-        
+
         # R² con color según calidad
         r2_color = "green" if metrics.r2 > 0.7 else "yellow" if metrics.r2 > 0.5 else "red"
         r2_interp = "Excelente" if metrics.r2 > 0.8 else "Bueno" if metrics.r2 > 0.6 else "Pobre"
-        table.add_row("R² Score", f"[{r2_color}]{metrics.r2:.4f}[/{r2_color}]", r2_interp)
+        table.add_row("R² Score (holdout)", f"[{r2_color}]{metrics.r2:.4f}[/{r2_color}]", r2_interp)
         table.add_row("RMSE", f"{metrics.rmse:.4f}", "Error típico")
         table.add_row("MAE", f"{metrics.mae:.4f}", "Error absoluto promedio")
         table.add_row("MAPE", f"{metrics.mape:.2f}%", "Error porcentual")
-        
+        if perm_result is not None:
+            # [scientific_report] mismo R² que aparece en el PDF — dataset
+            # completo, protocolo de reconciliación oficial. Se muestra junto
+            # al holdout, no en su reemplazo, para que quede explícito que
+            # son dos protocolos distintos y no un número contradictorio.
+            table.add_row(
+                "R² agregado (CV, dataset completo)",
+                f"{perm_result['real_r2']:.4f}",
+                "Protocolo oficial de reconciliación",
+            )
+        if metrics.permutation_p_value is not None:
+            p_color = "green" if metrics.permutation_p_value < 0.05 else "red"
+            table.add_row(
+                "p-value (permutation)",
+                f"[{p_color}]{metrics.permutation_p_value:.4f}[/{p_color}]",
+                "Señal real" if metrics.permutation_p_value < 0.05 else "No distinguible de azar"
+            )
+
         self.console.print(table)
-        
-        # Paso 5: Generar reporte visual
-        self.generate_report(y_test_real, y_pred, y_std, dates_test)
-        
+
+        # Paso 5: Generar reporte visual (+ informe científico si hay datos suficientes)
+        # [scientific_report] y_test_s: mismo espacio de escala en que se entrenó
+        # self.model (fit sobre y_train_s) — necesario para que permutation_importance
+        # calcule un R² comparable, aunque el R² como métrica es invariante a escala.
+        y_test_s = self.scaler_y.transform(y_test).ravel()
+        self.generate_report(
+            y_test_real, y_pred, y_std, dates_test,
+            output_dir=output_dir,
+            X_test=X_test_s,
+            y_test_for_importance=y_test_s,
+            permutation_result=perm_result,
+        )
+
         # Paso 6: Guardar modelo
         if save_model:
             self.save()
-        
+
         return metrics
+
+    def permutation_test(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        groups: np.ndarray = None,
+        n_permutations: int = 200,
+        n_splits: int = None
+    ) -> Dict:
+        """
+        [P0b ROADMAP] ¿El R² observado es señal real o azar/leakage?
+
+        Generalización reutilizable de run_geomet_rigor.py::perm_test: baraja
+        el target `n_permutations` veces, mide R² vía cross_val_predict en
+        cada barajado (GroupKFold si hay `groups`, si no KFold), y compara
+        contra el R² real. p-value = fracción de barajados que igualan o
+        superan el R² real (Monte Carlo, +1/+1 para evitar p=0 espurio).
+
+        Usa un GradientBoostingRegressor de hiperparámetros FIJOS (no el
+        modelo final, no Optuna) — misma razón que en el script original:
+        200 refits con optimización bayesiana serían intratables, y el
+        objetivo es diagnóstico de leakage/sobreajuste, no reproducir
+        exactamente el modelo de producción.
+
+        Args:
+            X: Features (escalados o no — el resultado es relativo).
+            y: Target, alineado fila a fila con X.
+            groups: Si se pasa, usa GroupKFold (mismo criterio que el split
+                honesto de train_from_file). Si None, KFold(shuffle=True).
+            n_permutations: Número de barajados Monte Carlo (200 default).
+            n_splits: Nº de folds. Si None: min(5, n_grupos) con grupos,
+                min(5, n_muestras) sin ellos. Se clampea a >=2 y <=n_grupos.
+
+        Returns:
+            Dict con real_r2, p_value, n_permutations, n_splits.
+        """
+        X = np.asarray(X, dtype=float)
+        y = np.asarray(y, dtype=float).ravel()
+
+        m = GradientBoostingRegressor(
+            n_estimators=200, max_depth=2, learning_rate=0.05,
+            random_state=self.random_state
+        )
+
+        if groups is not None:
+            groups = np.asarray(groups)
+            n_groups = len(np.unique(groups))
+            k = max(2, min(n_splits or 5, n_groups))
+            cv = GroupKFold(n_splits=k)
+            cv_kwargs = {"groups": groups}
+        else:
+            k = max(2, min(n_splits or 5, len(X)))
+            cv = KFold(n_splits=k, shuffle=True, random_state=self.random_state)
+            cv_kwargs = {}
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            real_pred = cross_val_predict(m, X, y, cv=cv, **cv_kwargs)
+        real_r2 = r2_score(y, real_pred)
+
+        rng = np.random.default_rng(self.random_state)
+        ge = 0
+        null_r2_distribution = []
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for _ in range(n_permutations):
+                y_perm = rng.permutation(y)
+                perm_pred = cross_val_predict(m, X, y_perm, cv=cv, **cv_kwargs)
+                perm_r2 = r2_score(y_perm, perm_pred)
+                null_r2_distribution.append(float(perm_r2))
+                if perm_r2 >= real_r2:
+                    ge += 1
+        p_value = (ge + 1) / (n_permutations + 1)
+
+        return {
+            "real_r2": float(real_r2),
+            "p_value": float(p_value),
+            "n_permutations": n_permutations,
+            "n_splits": k,
+            # [scientific_report] distribución nula completa — permite graficar
+            # el histograma de R² bajo H0 vs. el R² real, no solo reportarlo
+            # como número. Backward-compatible: clave nueva, no rompe código
+            # existente que solo lea real_r2/p_value/n_permutations/n_splits.
+            "null_r2_distribution": null_r2_distribution,
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1328,6 +1841,11 @@ Ejemplos de uso:
   python gp_model.py
   python gp_model.py --data data/gold.csv --target recovery
   python gp_model.py --trials 30 --subsample 20 --no-fallback
+  python gp_model.py --input-lags --input-lag-periods 1,2,4,8   # [P0] lags de entradas
+  python gp_model.py --no-lags --no-diffs                        # régimen sensor-only (RUL)
+  python gp_model.py --data data/geomet/flotation.csv --target LCT \\
+      --group-column HOLEID --no-parse-dates --no-lags --no-diffs \\
+      --permutation-test                                          # [P0b] split honesto GeoMet
         """
     )
     parser.add_argument("--data", "-d", type=str, default=None,
@@ -1341,27 +1859,68 @@ Ejemplos de uso:
     parser.add_argument("--subsample", "-s", type=int, default=None,
                        help="Subsample step (default: usa CONFIG)")
     parser.add_argument("--no-lags", action="store_true",
-                       help="Desactivar features de lag")
+                       help="Desactivar features de lag DEL TARGET")
+    parser.add_argument("--no-diffs", action="store_true",
+                       help="Desactivar diferencias/rolling DEL TARGET (junto con "
+                            "--no-lags, necesario para régimen sensor-only honesto "
+                            "en prognostics — ver ROADMAP.md, nota de integridad)")
+    parser.add_argument("--input-lags", action="store_true",
+                       help="[P0 ROADMAP] Activar lags de variables de ENTRADA "
+                            "(no del target) — para procesos con retardo/tiempo "
+                            "de residencia")
+    parser.add_argument("--input-lag-periods", type=str, default=None,
+                       help="Periodos de lag de entrada, coma-separados "
+                            "(default: 1,2,3). Ej: --input-lag-periods 1,2,4,8")
+    parser.add_argument("--input-lag-columns", type=str, default=None,
+                       help="Columnas de entrada a laguear, coma-separadas "
+                            "(default: todas las columnas numéricas de entrada)")
     parser.add_argument("--no-fallback", action="store_true",
                        help="No usar GradientBoosting como alternativa")
     parser.add_argument("--no-save", action="store_true",
                        help="No guardar el modelo")
-    
+    parser.add_argument("--group-column", type=str, default=None,
+                       help="[P0b ROADMAP] Columna de agrupamiento (ej. HOLEID) para "
+                            "split/CV honesto vía GroupShuffleSplit/GroupKFold — "
+                            "usar cuando varias filas comparten origen (sondaje, lote)")
+    parser.add_argument("--no-parse-dates", action="store_true",
+                       help="[P0b ROADMAP] El índice del CSV NO es una fecha real "
+                            "(datasets geometalúrgicos/spatial) — desactiva diagnóstico "
+                            "de autocorrelación y subsampleo temporal")
+    parser.add_argument("--permutation-test", action="store_true",
+                       help="[P0b ROADMAP] Correr permutation test (200 refits) tras "
+                            "entrenar y reportar el p-value junto a las métricas")
+
     args = parser.parse_args()
-    
+
     try:
+        input_lag_periods = (
+            [int(p.strip()) for p in args.input_lag_periods.split(",")]
+            if args.input_lag_periods else None
+        )
+        input_lag_columns = (
+            [c.strip() for c in args.input_lag_columns.split(",")]
+            if args.input_lag_columns else None
+        )
+
         model = SoftSensorGP(
             target_col=args.target,
             subsample_step=args.subsample,
             add_lag_features=not args.no_lags,
+            add_diff_features=not args.no_diffs,
+            add_input_lags=args.input_lags,
+            input_lag_periods=input_lag_periods,
+            input_lag_columns=input_lag_columns,
+            parse_dates=not args.no_parse_dates,
+            group_column=args.group_column,
             use_fallback_model=not args.no_fallback
         )
-        
+
         metrics = model.train_from_file(
             filepath=args.data,
             test_size=args.test_size,
             n_trials=args.trials,
-            save_model=not args.no_save
+            save_model=not args.no_save,
+            run_permutation_test=args.permutation_test
         )
         
         # Exit code basado en calidad del modelo

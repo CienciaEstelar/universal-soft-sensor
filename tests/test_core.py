@@ -4,11 +4,15 @@ Tests unitarios para el Universal Soft-Sensor
 Ejecutar con: pytest tests/ -v
 """
 
-import pytest
-import pandas as pd
-import numpy as np
-from pathlib import Path
+import json
+import os
+import subprocess
 import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -200,6 +204,206 @@ class TestPreprocessor:
         
         assert preprocessor.last_stats is not None
         assert preprocessor.last_stats.infinitos_reemplazados > 0
+
+
+@pytest.mark.adapter
+class TestUniversalAdapterDeterminism:
+    """
+    [P0b ROADMAP][REGRESIÓN] Test contra el bug real encontrado en GeoMet cobre:
+    UniversalAdapter._apply_feature_selection() armaba `keep_cols` como un
+    `set()` de Python y hacía `df[list(keep_cols)]`. El orden de iteración de
+    un set de strings NO es determinista entre procesos (hash randomization,
+    PYTHONHASHSEED aleatorio por defecto desde Python 3.3). Esto hacía que
+    remove_correlated_features() (aguas abajo, en SoftSensorGP) tirara una
+    feature distinta entre corridas ("Si ppm" vs. "Fe ppm" en GeoMet), dando
+    un R² distinto (0.315 vs 0.167-0.177) para el MISMO dataset y config.
+
+    Fix: preservar el orden original de df.columns al construir keep_cols
+    (ver core/adapters/universal_adapter.py, comentario "[P0b ROADMAP][FIX]").
+
+    Estos tests corren el adapter en subprocesos con PYTHONHASHSEED distinto
+    a propósito — un test in-process (misma corrida de pytest) NO habría
+    detectado el bug original, porque el hash seed es fijo dentro de un
+    mismo proceso.
+    """
+
+    @pytest.fixture
+    def config_with_correlated_features(self):
+        """
+        Dataset sintético no-temporal con dos columnas casi perfectamente
+        correlacionadas (>0.98) — replica la situación de GeoMet cobre
+        ("Si ppm" vs "Fe ppm") donde remove_correlated_features() debe
+        elegir cuál tirar, y esa elección dependía del orden no-determinista
+        de keep_cols.
+
+        NOTA: UniversalAdapter resuelve config_path y DATA_DIR relativos al
+        PAQUETE (core/adapters/../../config, .../data), no al cwd del test
+        — por eso este fixture escribe (y limpia) directamente dentro de
+        config/ y data/ del repo real, con nombres únicos para no chocar
+        con dataset_config.json.
+
+        Returns:
+            str: nombre del archivo de config JSON (relativo a config/).
+        """
+        project_root = Path(__file__).parent.parent
+        data_dir = project_root / "data"
+        config_dir = project_root / "config"
+        data_dir.mkdir(exist_ok=True)
+
+        n = 60
+        rng = np.random.RandomState(42)
+        base = rng.uniform(0, 10, n)
+
+        df = pd.DataFrame({
+            "sample_id": range(1, n + 1),
+            "feature_x_ppm": base,
+            "feature_y_ppm": base * 1.0001 + rng.normal(0, 1e-6, n),  # corr > 0.999
+            "feature_z_ppm": rng.uniform(-5, 5, n),
+            "target": 10.0 + 2.0 * base + rng.normal(0, 0.5, n),
+        })
+
+        csv_name = "_test_determinism_correlated_features.csv"
+        csv_path = data_dir / csv_name
+        df.to_csv(csv_path, index=False)
+
+        config = {
+            "dataset_name": "test_determinism",
+            "files": {
+                "filename": csv_name,
+                "timestamp_column": "no_existe_es_no_temporal",
+                "separator": ",",
+            },
+            "modeling": {"target_column": "target", "problem_type": "regression"},
+            "feature_engineering": {
+                "include_patterns": ["ppm", "sample_id"],
+                "exclude_patterns": [],
+                "forced_drop": [],
+            },
+        }
+        config_name = "_test_determinism_config.json"
+        config_path = config_dir / config_name
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        yield config_name
+
+        # NOTA: unlink() puede fallar por permisos según el filesystem/mount
+        # (ej. carpetas de proyecto montadas desde el host). No es crítico
+        # dejar estos archivos huérfanos (nombres con prefijo "_test_" y
+        # gitignored vía data/), así que no fallamos el test por esto.
+        for p in (csv_path, config_path):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def test_column_order_deterministic_within_process(
+        self, config_with_correlated_features
+    ):
+        """
+        Llamar load_data() repetidamente en el MISMO proceso debe dar
+        siempre el mismo orden de columnas (condición necesaria, no
+        suficiente — el bug real solo se manifestaba entre procesos).
+        """
+        from core.adapters.universal_adapter import UniversalAdapter
+
+        config_filename = config_with_correlated_features
+        orders = []
+        for _ in range(5):
+            adapter = UniversalAdapter(config_filename=config_filename)
+            df = adapter.load_data()
+            orders.append(list(df.columns))
+
+        assert all(o == orders[0] for o in orders), (
+            "El orden de columnas de UniversalAdapter.load_data() varió "
+            "entre llamadas en el mismo proceso."
+        )
+
+    def test_column_order_deterministic_across_processes(
+        self, config_with_correlated_features
+    ):
+        """
+        [Regresión del bug real] Corre el adapter en 5 subprocesos frescos,
+        cada uno con PYTHONHASHSEED distinto (por defecto, aleatorio por
+        proceso). Antes del fix, el orden de columnas —y por lo tanto qué
+        feature correlacionada sobrevivía a remove_correlated_features()—
+        variaba entre estas corridas. Con el fix, debe ser idéntico siempre.
+        """
+        from core.adapters.universal_adapter import UniversalAdapter
+
+        config_filename = config_with_correlated_features
+        project_root = str(Path(__file__).parent.parent)
+
+        script = (
+            "import sys, json\n"
+            f"sys.path.insert(0, {project_root!r})\n"
+            "from core.adapters.universal_adapter import UniversalAdapter\n"
+            f"adapter = UniversalAdapter(config_filename={config_filename!r})\n"
+            "df = adapter.load_data()\n"
+            "print(json.dumps(list(df.columns)))\n"
+        )
+
+        column_orders = []
+        for i in range(5):
+            env = os.environ.copy()
+            env["PYTHONHASHSEED"] = str(i)  # forzar seeds DISTINTOS entre corridas
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                cwd=project_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            assert result.returncode == 0, (
+                f"Subproceso falló (PYTHONHASHSEED={i}): {result.stderr}"
+            )
+            column_orders.append(json.loads(result.stdout.strip().splitlines()[-1]))
+
+        assert all(order == column_orders[0] for order in column_orders), (
+            "UniversalAdapter da un orden de columnas distinto según "
+            "PYTHONHASHSEED — regresión del bug de no-determinismo de "
+            f"GeoMet cobre (set() en _apply_feature_selection). Órdenes "
+            f"observados: {column_orders}"
+        )
+
+    def test_correlated_feature_removed_is_stable(
+        self, config_with_correlated_features
+    ):
+        """
+        Consecuencia directa del bug: con orden de columnas determinista,
+        SoftSensorGP.remove_correlated_features() debe eliminar SIEMPRE la
+        misma de las dos features correlacionadas (feature_y_ppm, que viene
+        después de feature_x_ppm en el CSV original), no una al azar.
+        """
+        from core.adapters.universal_adapter import UniversalAdapter
+        from core.models.gp_model import SoftSensorGP
+
+        config_filename = config_with_correlated_features
+        project_root = Path(__file__).parent.parent
+
+        survivors = []
+        for _ in range(3):
+            adapter = UniversalAdapter(config_filename=config_filename)
+            df = adapter.load_data()
+            tmp_csv = project_root / "data" / "_test_determinism_reload_tmp.csv"
+            df.to_csv(tmp_csv, index=False)
+
+            model = SoftSensorGP(
+                target_col="target", parse_dates=False, add_lag_features=False,
+                add_diff_features=False,
+            )
+            model.load_data(filepath=str(tmp_csv))
+            survivors.append(sorted(model.feature_names))
+            try:
+                tmp_csv.unlink()
+            except OSError:
+                pass
+
+        assert all(s == survivors[0] for s in survivors), (
+            f"El set de features sobrevivientes tras remove_correlated_features() "
+            f"varió entre corridas: {survivors}"
+        )
 
 
 class TestConfig:

@@ -6,71 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Industrial Soft-Sensor system for mining process optimization (Mining 4.0). Predicts quality variables (recovery, grade, silica) in near real-time using Gaussian Processes with automatic fallback to Gradient Boosting. Requires Python ≥ 3.10. The project is written in Spanish (code comments, UI, variable names) — maintain this convention.
 
-## Commands
-
-```bash
-# Install
-pip install -r requirements.txt
-pip install -e ".[dev]"          # dev dependencies (pytest, black, ruff, mypy)
-
-# Run tests
-pytest tests/ -v                                    # all tests
-pytest tests/test_modeling.py -v                    # single test file (also: test_core.py, test_pipeline.py)
-pytest tests/ -k "test_name"                        # single test by name
-pytest tests/ -m "validation and not integration"   # filter by custom marker
-
-# Lint & format
-ruff check .
-black --check .
-mypy .
-
-# Pipeline stages — module form
-python -m tools.scan_schema      # scan dataset structure
-python -m core.pipeline          # ETL pipeline
-python train_universal.py        # train model
-python predict_universal.py      # run inference
-streamlit run dashboard.py       # launch HMI dashboard
-
-# Equivalent console-script entrypoints (after `pip install -e .`, see pyproject.toml)
-softsensor-scan                      # = python -m tools.scan_schema
-softsensor-pipeline                  # = python -m core.pipeline
-softsensor-gp                    # = python -m core.models.gp_model
-```
-
-## Architecture
-
-The system follows a staged pipeline: **Ingest -> Validate -> Preprocess -> Train -> Infer -> Dashboard**.
-
-### Configuration Layer
-- `config/settings.py` — Single source of truth (`CONFIG` singleton). All paths, GP parameters, and the critical `DEFAULT_SUBSAMPLE_STEP` are centralized here. Modules import `from config.settings import CONFIG`. Supports `.env` overrides.
-- `config/dataset_config.json` — Declarative JSON defining dataset file, target column, include/exclude substring patterns for feature filtering (not regex — avoids ReDoS), and data leakage prevention rules.
-
-### Core Pipeline
-- **Adapters** (`core/adapters/`) — Data ingestion layer. `UniversalAdapter` reads `dataset_config.json` and filters columns by substring match (not regex). `CSVAdapter` handles chunked CSV streaming. `DataAdapter` orchestrates the full ingestion flow.
-- **Validation** (`core/validation/`) — `PhysicalSchema` uses pattern matching (not hardcoded column names) to detect physical variable categories (temperature, percentage, flow, pH, level) and enforce valid ranges. `PhysicalValidator` applies the schema.
-- **Preprocessor** (`core/preprocessor.py`) — Statistical cleaning: null imputation (ffill/bfill/interpolate), outlier detection, constant column removal.
-- **Pipeline** (`core/pipeline.py`) — `SoftSensorPipeline` orchestrates ETL with chunked processing, checkpointing, and Rich progress bars.
-
-### Modeling
-- `core/models/gp_model.py` — `SoftSensorGP` class: Gaussian Process with Matern kernels optimized via Optuna. Includes temporal feature engineering (lags, diffs, rolling windows), autocorrelation diagnostics, correlated feature removal, and automatic fallback to `GradientBoostingRegressor` when GP R² < 0.6.
-- `train_universal.py` — Training orchestrator. Uses `DataAdapter` for ingestion, then `SoftSensorGP` for training. Creates temp files cleaned up via try/finally.
-
-### Inference & UI
-- `core/inference_engine.py` — `InferenceEngine` facade: loads saved models, generates features at inference time, de-scales predictions. Supports single-point and rolling series prediction.
-- `predict_universal.py` — Inference simulation script.
-- `dashboard.py` — Streamlit HMI with reactive inference and What-If scenario engine.
-- `core/report_generator.py` — PDF audit report generation.
-
 ## Key Design Decisions
 
 - **Subsample alignment**: The `DEFAULT_SUBSAMPLE_STEP` in `config/settings.py` must be the same for training and inference. Previously hardcoded differently in multiple files, now centralized. Never hardcode subsample values in individual modules.
 - **Universal schema**: The validation schema uses substring pattern matching on column names, not hardcoded column lists. This makes it work across different datasets (gold_recovery, AI4I2020, etc.) without code changes.
 - **No shuffle**: Temporal ordering is preserved throughout. Train/test splits are sequential, not random.
 - **Dataset configuration is declarative**: New datasets are onboarded by editing `config/dataset_config.json`, not by modifying Python code. Note: the README references a `config/dataset_config.example.json` template that is not currently shipped — copy/adapt the existing `dataset_config.json` instead.
-
-## Testing
-
-Tests use synthetic data fixtures defined in `tests/conftest.py`. Custom markers: `integration`, `validation`, `schema`, `adapter`. The `trained_model` fixture is expensive (trains a real GP) — use sparingly.
 
 ## Validación Cross-Domain — 2026-07-20 (VERIFICADA)
 
@@ -117,20 +58,6 @@ caso de negocio. Mapa completo en `results/verification/FINDINGS.md`. Resumen:
 verificado con rigor de paper), no en la ley de concentrado. Scripts:
 `run_flotation_*.py`, `run_geomet_*.py` en la raíz.
 
-### Assets generados
-
-```
-data/nasa_cmaps_fd001.csv              ← CMAPSS preparado (20,631 filas, 27 cols)
-data/zema_hydraulic_features.csv       ← ZeMA con feature extraction (2,205 filas, 104 features)
-data/hydraulic_systems/                ← Datos crudos ZeMA (531 MB, 17 sensores)
-data/ai4i2020.csv                      ← AI4I 2020 (10,000 filas)
-models/gp_RUL_20260720_123357.pkl      ← Modelo CMAPSS
-models/gradientboosting_cooler_condition_20260720_124004.pkl  ← Modelo ZeMA
-models/gradientboosting_Machine failure_20260720_124535.pkl   ← Modelo AI4I
-nasa-predictive-maintenance-rul.ipynb  ← Notebook referencia (wassimderbel)
-ai4i-2020-predictive-maintenance.ipynb ← Notebook referencia (jiejiea)
-```
-
 ### Lecciones aprendidas
 
 - **El régimen de evaluación importa tanto como el modelo**: con rezagos del target,
@@ -147,16 +74,52 @@ ai4i-2020-predictive-maintenance.ipynb ← Notebook referencia (jiejiea)
 - **Tiempos**: GP con 5,000 samples → ~20 min en Acer Nitro 5. Reducir GP_MAX_SAMPLES a 2,000 para iteración rápida (~1-2 min)
 - **Kaggle API**: token configurado en `~/.kaggle/access_token` y `.kaggle_token` del proyecto. kagglehub instalado en `.venv`
 
-### Configuración para reproducir
+## Estado 2026-07-21: foco minería/cobre + P0/P0b implementados
 
-```bash
-# CMAPSS
-cp config/dataset_config.json config/dataset_config.json.bak
-# Editar dataset_config.json → nasa_cmaps_fd001.csv, target=RUL
-echo 'DATA_RAW_PATH=data/nasa_cmaps_fd001.csv\nGP_TARGET=RUL\nGP_MAX_SAMPLES=5000\nGP_TRIALS=20\nSUBSAMPLE_STEP=1' > .env
-python -m core.pipeline && python train_universal.py
-# Restaurar: cp config/dataset_config.json.bak config/dataset_config.json && rm .env
-```
+> Detalle completo y hallazgos honestos en `ROADMAP.md` (secciones -1, 0, 1b). Resumen:
+
+- **Alcance**: el proyecto se re-enfoca a minería exclusivamente, cobre como prioridad #1.
+  CMAPSS/ZeMA/AI4I2020 quedan como referencia técnica, no como objetivo de producto.
+- **`config/dataset_config.json` apunta a GeoMet cobre** (antes AI4I2020). Backup del
+  config anterior en `config/dataset_config.ai4i2020.bak.json`.
+- **P0 (lags de inputs) y P0b (GroupKFold/split por grupo) implementados** en
+  `core/models/gp_model.py` — nuevos parámetros `add_input_lags`, `group_column`,
+  `parse_dates`, método público `permutation_test()`. Expuestos en CLI de `gp_model.py`
+  y `train_universal.py`. 100/100 tests del repo pasan (11 nuevos en
+  `TestGroupAwareTraining`, 6 en `TestInputLagFeatures`).
+- **Bug real encontrado y corregido**: `UniversalAdapter.load_data()` hacía `ffill()`
+  incondicional — para datasets sin timestamp real (ej. GeoMet, spatial/geometalúrgico)
+  esto fabricaba valores tomando la fila vecina de OTRO sondaje. Ahora `ffill()` solo
+  corre si hay índice temporal real; sin él, `dropna()` directo.
+- **✅ Reconciliación CERRADA (confirmada con 200 permutaciones)**: se había marcado
+  "cerrada" (R²=0.315, p=0.005) más temprano en la misma sesión, pero esa conclusión
+  venía de un **segundo bug de no-determinismo**: `UniversalAdapter._apply_feature_selection()`
+  armaba `keep_cols` con `set()` de Python (orden de iteración no determinista entre
+  procesos), lo que hacía que `remove_correlated_features()` tirara una feature distinta
+  según la corrida ("Si ppm" vs. "Fe ppm"), y con eso un R² distinto (0.315 vs 0.167-0.177).
+  **Corregido**: `UniversalAdapter` ahora preserva el orden original de columnas
+  (determinista). Con el fix ya en el código, se corrió el test de 200 permutaciones
+  completo (no 25 ni 15 preliminares): **R²=0.319, p=0.005** — reconcilia con el 0.33 del
+  script de auditoría aislado (`geomet_rigor.json`), diferencia de 0.011 atribuible a
+  92 vs 102 filas por el fix del `ffill`. Esto SÍ califica como "señal real" por el
+  criterio del propio `run_geomet_rigor.py` (r²>0.3, p<0.05). Artefacto:
+  `results/verification/geomet_pipeline_reconciliation_v2.json`. Probados también
+  PLS/Ridge/ElasticNet/RandomForest como alternativas al GB fijo — todos peores o
+  negativos, sugiriendo que la relación es no-lineal; palancas de mejora (más datos,
+  features de dominio, tuning) documentadas en ROADMAP.md sección 1b.
+- **Segundo dataset de cobre (SINTÉTICO) para validar generalización del método**:
+  se buscó un dataset real más grande (~10 candidatos evaluados); el único con target
+  de recuperación real (Mu & Salas 2023, n=1112) resultó confidencial. Se usó en su
+  lugar `porphyry_01` (Garrido et al. 2020, sintético, CC BY-NC-SA 4.0,
+  github.com/exepulveda/geomet_datasets) — 147,231 bloques tras filtrar waste. Con
+  200 permutaciones sobre n=20,000: **R²=0.7686, p=0.005** (SINTÉTICO — nunca comparar
+  directamente con el 0.319 real de GeoMet). Confirma que el método detecta y valida
+  señal fuerte cuando existe, a 200x el tamaño de GeoMet. Ver ROADMAP.md sección 1c.
+- **Informe científico automático (P5, 2026-07-21)**: nuevo `core/scientific_report.py`.
+  Cada entrenamiento genera ahora, además del panel de diagnóstico de siempre, un PDF
+  consolidado (`informe_cientifico_*.pdf`) con estilo de publicación (SciencePlots),
+  gráfico de test de permutación (si se corrió) y gráfico de importancia de features
+  (permutation importance, model-agnóstico). Ver ROADMAP.md sección "P5".
 
 ## Seguridad / Hardening — 2026-07-20
 
@@ -172,9 +135,3 @@ y `tests/test_security.py` (11 tests de regresión). Reglas para no re-romper:
 - **Validación de entrada** en `load_data` (numérico/inf/min-filas/varianza) y contención
   de path traversal en el adapter. No bypassear.
 - **Cap del GP** usa muestreo aleatorio seedeado (determinista, sin aliasing).
-
-## Tool Configuration
-
-- **black**: line-length 100, target py310+
-- **ruff**: line-length 100, includes E/W/F/I/B/C4/UP rules, ignores E501
-- **pytest**: testpaths=tests, `-v --tb=short`, suppresses DeprecationWarning/UserWarning

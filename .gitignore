@@ -26,7 +26,12 @@ data/
 # =========================
 # Modelos entrenados
 # =========================
+# [FIX 2026-07-22] "models/*.pkl" solo cubre el nivel superior — no matchea
+# subcarpetas como models/archive_cross_domain/. Sin este fix, un .pkl de
+# ~200MB (modelo NASA CMAPSS) casi queda commiteado al mover modelos viejos
+# de datasets cruzados a una subcarpeta de archivo.
 models/*.pkl
+models/**/*.pkl
 
 # =========================
 # Resultados y outputs
@@ -89,3 +94,8 @@ paper/*.out
 # Claude Code local config (workflow interno, no debe ser público)
 # =========================
 .claude/
+
+# =========================
+# Material personal de reuniones (no público)
+# =========================
+prep_reunion_prof_jarufe.pdf

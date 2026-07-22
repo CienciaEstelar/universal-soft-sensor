@@ -26,7 +26,10 @@ def _train(df, target, tmp_path, **kw):
     df.to_csv(p, index=False)
     m = SoftSensorGP(target_col=target, random_state=42,
                      add_lag_features=False, add_diff_features=False, **kw)
-    metrics = _quiet(m.train_from_file, str(p), test_size=0.2, n_trials=1, save_model=False)
+    metrics = _quiet(
+        m.train_from_file, str(p), test_size=0.2, n_trials=1, save_model=False,
+        output_dir=tmp_path,  # no ensuciar el results/ real del proyecto
+    )
     return m, metrics
 
 

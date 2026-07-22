@@ -410,7 +410,8 @@ class TestIntegration:
             filepath=str(csv_path),
             n_trials=1,
             test_size=0.3,
-            save_model=False
+            save_model=False,
+            output_dir=tmp_path,  # no ensuciar el results/ real del proyecto
         )
         
         # 4. Verificar que entrenó
