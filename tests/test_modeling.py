@@ -688,5 +688,137 @@ class TestInferenceEngineIntegration:
             assert total == 0 or abs(total - 1.0) < 1e-6 or total <= 1.0
 
 
+class TestUncertaintyCalibration:
+    """
+    [P6 ROADMAP — calibración] Tests de NLL y Coverage@95 en evaluate().
+
+    Estas métricas responden a una pregunta que R²/RMSE no responden: ¿la
+    incertidumbre σ que reporta el GP es confiable, o son bandas de confianza
+    decorativas? Un GP puede tener buen R² y estar mal calibrado (sobre o
+    sub-confiado). Estos tests fijan el contrato y previenen dos trampas:
+    (1) calcular calibración sobre σ=0 (fallback GB) → división por cero
+    enmascarada; (2) romper el comportamiento previo de evaluate() sin y_std.
+    """
+
+    def _model(self):
+        return SoftSensorGP(target_col="t")
+
+    def test_well_calibrated_coverage_near_95(self):
+        """Con σ que coincide con el error real, la cobertura del IC 95% debe
+        caer cerca del 95% nominal (banda ±1.96σ), no en cualquier lado."""
+        m = self._model()
+        rng = np.random.default_rng(0)
+        n = 4000
+        y_true = rng.normal(0, 1, n)
+        sigma = 0.1
+        y_pred = y_true + rng.normal(0, sigma, n)
+        y_std = np.full(n, sigma)
+
+        metrics = m.evaluate(y_true, y_pred, y_std=y_std)
+
+        assert metrics.coverage_95 is not None
+        # Cobertura empírica de un gaussiano bien calibrado: ~0.95. Margen
+        # amplio (±0.03) para no ser frágil ante la semilla.
+        assert 0.92 <= metrics.coverage_95 <= 0.98
+        assert metrics.nll is not None
+        assert np.isfinite(metrics.nll)
+
+    def test_overconfident_model_flagged_by_low_coverage(self):
+        """Si σ es demasiado chico vs el error real (sobre-confianza), la
+        cobertura debe caer MUY por debajo de 0.95 y la NLL dispararse."""
+        m = self._model()
+        rng = np.random.default_rng(1)
+        n = 4000
+        y_true = rng.normal(0, 1, n)
+        y_pred = y_true + rng.normal(0, 0.1, n)  # error real ~0.1
+        y_std = np.full(n, 0.01)                  # pero σ reportado 10x menor
+
+        metrics = m.evaluate(y_true, y_pred, y_std=y_std)
+
+        assert metrics.coverage_95 is not None
+        assert metrics.coverage_95 < 0.5          # claramente mal calibrado
+        assert metrics.nll > 1.0                  # NLL alta = penaliza sobre-confianza
+
+    def test_gb_fallback_zero_std_leaves_calibration_none(self):
+        """El fallback GradientBoosting devuelve σ=0. Calibración NO debe
+        calcularse (daría división por cero enmascarada): queda None, sin
+        crash y sin número engañoso."""
+        m = self._model()
+        rng = np.random.default_rng(2)
+        n = 500
+        y_true = rng.normal(0, 1, n)
+        y_pred = y_true + rng.normal(0, 0.1, n)
+        y_std = np.zeros(n)  # exactamente lo que devuelve predict() para GB
+
+        metrics = m.evaluate(y_true, y_pred, y_std=y_std)
+
+        assert metrics.coverage_95 is None
+        assert metrics.nll is None
+        # Las métricas de error puntual sí deben existir.
+        assert np.isfinite(metrics.r2)
+        assert np.isfinite(metrics.rmse)
+
+    def test_backward_compatible_without_std(self):
+        """evaluate() sin y_std (firma original) no debe romperse ni calcular
+        calibración — comportamiento idéntico al previo."""
+        m = self._model()
+        rng = np.random.default_rng(3)
+        n = 500
+        y_true = rng.normal(0, 1, n)
+        y_pred = y_true + rng.normal(0, 0.1, n)
+
+        metrics = m.evaluate(y_true, y_pred)  # sin y_std
+
+        assert metrics.coverage_95 is None
+        assert metrics.nll is None
+        assert np.isfinite(metrics.r2)
+
+    def test_coverage_is_exact_fraction_within_band(self):
+        """Coverage@95 debe ser la fracción exacta de puntos con |y-μ| ≤ 1.96σ,
+        verificable de forma determinista (sin azar)."""
+        m = self._model()
+        y_true = np.array([0.0, 0.0, 0.0, 0.0])
+        # errores: 0, 1.0, 3.0, 0.5 ; con σ=1 el umbral es 1.96
+        #   dentro: 0, 1.0, 0.5 (3 de 4) ; fuera: 3.0
+        y_pred = np.array([0.0, 1.0, 3.0, 0.5])
+        y_std = np.array([1.0, 1.0, 1.0, 1.0])
+
+        metrics = m.evaluate(y_true, y_pred, y_std=y_std)
+
+        assert metrics.coverage_95 == pytest.approx(0.75)
+
+    def test_single_zero_std_point_disables_calibration(self):
+        """Una sola σ=0 en medio de σ>0 haría NLL=+inf. El guard exige TODA σ>0,
+        así que en ese caso la calibración se omite (None), no se reporta inf."""
+        m = self._model()
+        y_true = np.array([0.0, 1.0, 2.0, 3.0])
+        y_pred = np.array([0.1, 1.1, 1.9, 3.2])
+        y_std = np.array([0.5, 0.5, 0.0, 0.5])  # una σ=0
+
+        metrics = m.evaluate(y_true, y_pred, y_std=y_std)
+
+        assert metrics.nll is None
+        assert metrics.coverage_95 is None
+
+    def test_calibration_survives_dict_and_repr(self):
+        """to_dict() y __repr__ deben incluir nll/coverage_95 cuando existen y
+        omitirlos cuando son None (contrato de serialización)."""
+        m = self._model()
+        rng = np.random.default_rng(4)
+        n = 300
+        y_true = rng.normal(0, 1, n)
+        y_pred = y_true + rng.normal(0, 0.1, n)
+
+        with_std = m.evaluate(y_true, y_pred, y_std=np.full(n, 0.1))
+        d = with_std.to_dict()
+        assert "nll" in d and "coverage_95" in d
+        assert "Cov95" in repr(with_std) and "NLL" in repr(with_std)
+
+        without = m.evaluate(y_true, y_pred, y_std=np.zeros(n))
+        d2 = without.to_dict()
+        assert "nll" not in d2 and "coverage_95" not in d2
+        assert "Cov95" not in repr(without)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -149,24 +149,48 @@ class ModelMetrics:
             se corrió (train_from_file(..., run_permutation_test=True)).
             None si no se corrió. Un R² alto con p-value alto (>0.05) es la
             firma clásica de sobreajuste/leakage — ver permutation_test().
+        nll: [P6 ROADMAP — calibración] Negative Log-Likelihood gaussiana
+            media sobre el test set: 0.5·mean[ log(2π·σ²) + (y-μ)²/σ² ].
+            Mide qué tan bien calibrada está la incertidumbre σ del GP, no
+            solo el error puntual: penaliza tanto errar la media como estar
+            sobre-confiado (σ chico con error grande) o sub-confiado (σ grande
+            innecesario). Menor = mejor. SOLO se calcula para el GP (que da σ
+            real); para el fallback GradientBoosting (σ=0) queda None, porque
+            la NLL no está definida sin incertidumbre — reportar un número ahí
+            sería engañoso.
+        coverage_95: [P6 ROADMAP — calibración] Fracción de puntos de test que
+            caen dentro del intervalo de confianza del 95% (|y-μ| ≤ 1.96σ).
+            Un GP bien calibrado da ~0.95. <0.95 = sobre-confiado (bandas muy
+            angostas); >0.95 = sub-confiado (bandas muy anchas). Igual que NLL,
+            solo aplica al GP; None para el fallback GB.
     """
     r2: float = 0.0
     rmse: float = 0.0
     mae: float = 0.0
     mape: float = 0.0
     permutation_p_value: Optional[float] = None
+    nll: Optional[float] = None
+    coverage_95: Optional[float] = None
 
     def to_dict(self) -> dict:
         """Convierte las métricas a diccionario (útil para JSON)."""
         d = {"r2": self.r2, "rmse": self.rmse, "mae": self.mae, "mape": self.mape}
         if self.permutation_p_value is not None:
             d["permutation_p_value"] = self.permutation_p_value
+        if self.nll is not None:
+            d["nll"] = self.nll
+        if self.coverage_95 is not None:
+            d["coverage_95"] = self.coverage_95
         return d
 
     def __repr__(self) -> str:
         base = f"R²={self.r2:.4f}, RMSE={self.rmse:.4f}, MAE={self.mae:.4f}"
         if self.permutation_p_value is not None:
             base += f", p-perm={self.permutation_p_value:.4f}"
+        if self.nll is not None:
+            base += f", NLL={self.nll:.4f}"
+        if self.coverage_95 is not None:
+            base += f", Cov95={self.coverage_95:.3f}"
         return base
 
 
@@ -1172,16 +1196,28 @@ class SoftSensorGP:
         
         return y_pred, y_std
     
-    def evaluate(self, y_true: np.ndarray, y_pred: np.ndarray) -> ModelMetrics:
+    def evaluate(
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        y_std: Optional[np.ndarray] = None,
+    ) -> ModelMetrics:
         """
         Calcula métricas de evaluación.
-        
+
         Args:
             y_true: Valores reales
             y_pred: Valores predichos
-            
+            y_std: [P6 ROADMAP — calibración] Desviación estándar predicha por
+                el modelo (la incertidumbre σ). Opcional y backward-compatible:
+                si es None (o si es todo ceros, como en el fallback
+                GradientBoosting) NO se calculan NLL ni Coverage@95 — quedan en
+                None. Solo el GP entrega una σ real; calcular calibración sobre
+                σ=0 daría división por cero enmascarada en un número basura, así
+                que se evita explícitamente en vez de reportar algo engañoso.
+
         Returns:
-            ModelMetrics con R², RMSE, MAE, MAPE
+            ModelMetrics con R², RMSE, MAE, MAPE y —si hay σ real— NLL y Cov95.
         """
         y_true = np.asarray(y_true, dtype=float).ravel()
         y_pred = np.asarray(y_pred, dtype=float).ravel()
@@ -1209,11 +1245,32 @@ class SoftSensorGP:
         else:
             mape = float("nan")
 
+        # [P6 ROADMAP — calibración] NLL y Coverage@95 SOLO si hay una σ real.
+        # Condiciones para calcular (todas necesarias):
+        #   - y_std provisto (no None),
+        #   - misma longitud que y_true,
+        #   - toda σ estrictamente > 0 (el fallback GB devuelve σ=0 → se omite;
+        #     una σ=0 aislada haría NLL = +inf y rompería la media).
+        # Si no se cumplen, ambas quedan None: preferimos "no medido" a un
+        # número que parezca informativo pero no lo sea.
+        nll = None
+        coverage_95 = None
+        if y_std is not None:
+            y_std_arr = np.asarray(y_std, dtype=float).ravel()
+            if y_std_arr.shape == y_true.shape and np.all(np.isfinite(y_std_arr)) and np.all(y_std_arr > 0):
+                var = y_std_arr ** 2
+                # NLL gaussiana media: 0.5·mean[ log(2π·σ²) + (y-μ)²/σ² ]
+                nll = float(0.5 * np.mean(np.log(2 * np.pi * var) + (y_true - y_pred) ** 2 / var))
+                # Coverage empírico del IC 95% (banda ±1.96σ)
+                coverage_95 = float(np.mean(np.abs(y_true - y_pred) <= 1.96 * y_std_arr))
+
         self.metrics = ModelMetrics(
             r2=r2,
             rmse=np.sqrt(mean_squared_error(y_true, y_pred)),
             mae=mean_absolute_error(y_true, y_pred),
-            mape=mape
+            mape=mape,
+            nll=nll,
+            coverage_95=coverage_95,
         )
 
         return self.metrics
@@ -1519,6 +1576,22 @@ class SoftSensorGP:
                     ("MAE", f"{self.metrics.mae:.4f}", "Error absoluto promedio"),
                     ("MAPE", f"{self.metrics.mape:.2f}%", "Error porcentual"),
                 ]
+                # [P6 ROADMAP — calibración] Solo presentes para el GP (σ real).
+                if self.metrics.coverage_95 is not None:
+                    if self.metrics.coverage_95 < 0.90:
+                        cov_interp = "Sobre-confiado (bandas angostas)"
+                    elif self.metrics.coverage_95 > 0.99:
+                        cov_interp = "Sub-confiado (bandas anchas)"
+                    else:
+                        cov_interp = "Incertidumbre bien calibrada (~95% nominal)"
+                    metrics_rows.append((
+                        "Cobertura IC 95%", f"{self.metrics.coverage_95:.3f}", cov_interp,
+                    ))
+                if self.metrics.nll is not None:
+                    metrics_rows.append((
+                        "NLL (calibración)", f"{self.metrics.nll:.4f}",
+                        "Negative log-likelihood gaussiana — menor = mejor",
+                    ))
                 if permutation_result:
                     # [scientific_report] R² agregado sobre el dataset completo
                     # (cross_val_predict + GroupKFold), el mismo número que el
@@ -1650,7 +1723,7 @@ class SoftSensorGP:
         # Paso 5: Evaluar en test set (y_test ya está en escala original)
         y_test_real = y_test.ravel()
         y_pred, y_std = self.predict(X_test_s)
-        metrics = self.evaluate(y_test_real, y_pred)
+        metrics = self.evaluate(y_test_real, y_pred, y_std=y_std)
 
         # [P0b ROADMAP] Permutation test opcional sobre el DATASET COMPLETO
         # (X, y, groups — no solo X_train) — mismo protocolo agregado
@@ -1688,6 +1761,25 @@ class SoftSensorGP:
         table.add_row("RMSE", f"{metrics.rmse:.4f}", "Error típico")
         table.add_row("MAE", f"{metrics.mae:.4f}", "Error absoluto promedio")
         table.add_row("MAPE", f"{metrics.mape:.2f}%", "Error porcentual")
+        # [P6 ROADMAP — calibración] Solo se llenan para el GP (σ real).
+        if metrics.coverage_95 is not None:
+            # Verde si la cobertura está cerca del 95% nominal (±5 pts);
+            # amarillo si se aleja (sobre/sub-confianza).
+            cov_ok = 0.90 <= metrics.coverage_95 <= 1.0
+            cov_color = "green" if cov_ok else "yellow"
+            if metrics.coverage_95 < 0.90:
+                cov_interp = "Sobre-confiado (bandas angostas)"
+            elif metrics.coverage_95 > 0.99:
+                cov_interp = "Sub-confiado (bandas anchas)"
+            else:
+                cov_interp = "Incertidumbre bien calibrada"
+            table.add_row(
+                "Cobertura IC 95%",
+                f"[{cov_color}]{metrics.coverage_95:.3f}[/{cov_color}]",
+                cov_interp,
+            )
+        if metrics.nll is not None:
+            table.add_row("NLL (calibración)", f"{metrics.nll:.4f}", "Menor = mejor (media+incertidumbre)")
         if perm_result is not None:
             # [scientific_report] mismo R² que aparece en el PDF — dataset
             # completo, protocolo de reconciliación oficial. Se muestra junto
