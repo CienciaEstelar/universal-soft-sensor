@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Universal Soft-Sensor · Dashboard interactivo</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0e14; --bg2:#0f1521; --card:#141c2b; --card2:#18212f;
+    --ink:#e8edf4; --muted:#8b98ab; --line:#23304a;
+    --cu:#e8894d; --cu2:#f4a261; --teal:#2a9d8f; --green:#3ddc84;
+    --red:#e85d5d; --yellow:#e9c46a; --blue:#4da6e8;
+    --shadow:0 8px 30px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:radial-gradient(1000px 600px at 75% -10%,rgba(232,137,77,.10),transparent 60%),var(--bg);
+    color:var(--ink);line-height:1.55;padding:0 0 60px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 22px}
+  header{padding:42px 0 24px;border-bottom:1px solid var(--line);margin-bottom:28px}
+  .eyebrow{color:var(--cu2);font-size:12px;letter-spacing:2.5px;text-transform:uppercase;font-weight:700}
+  h1{font-size:clamp(25px,4vw,38px);font-weight:800;letter-spacing:-.5px;margin:8px 0 10px}
+  .lead{color:var(--muted);font-size:15.5px;max-width:770px}
+  h2{font-size:20px;font-weight:700;margin:38px 0 4px;letter-spacing:-.3px}
+  h2 .tag{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-left:8px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:16px;max-width:820px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 18px;box-shadow:var(--shadow);transition:.2s}
+  .kpi:hover{transform:translateY(-3px);border-color:var(--cu)}
+  .kpi .n{font-size:31px;font-weight:800;color:var(--cu2);font-variant-numeric:tabular-nums;letter-spacing:-1px}
+  .kpi .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-top:6px}
+  .kpi .d{font-size:12px;color:var(--ink);margin-top:8px;opacity:.75}
+  .checks{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .check{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--green);border-radius:12px;padding:16px 20px}
+  .check .q{font-weight:700;font-size:15px;margin-bottom:5px}
+  .check .a{font-size:13.5px;color:var(--muted)}
+  .check .badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:100px;margin-bottom:8px;
+    background:rgba(61,220,132,.12);color:var(--green);border:1px solid rgba(61,220,132,.3)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;box-shadow:var(--shadow)}
+  .panel h3{font-size:15px;font-weight:700;margin-bottom:3px}
+  .panel .note{font-size:12px;color:var(--muted);margin-bottom:14px}
+  .chartbox{position:relative;height:290px}
+  /* toggle */
+  .toggle-wrap{display:flex;align-items:center;gap:14px;margin:6px 0 16px}
+  .switch{position:relative;display:inline-block;width:132px;height:38px;flex:none}
+  .switch input{display:none}
+  .slider{position:absolute;cursor:pointer;inset:0;background:var(--card2);border:1px solid var(--line);border-radius:100px;transition:.25s}
+  .slider:before{content:"";position:absolute;height:30px;width:62px;left:3px;top:3px;background:linear-gradient(135deg,var(--green),#2fbf6f);border-radius:100px;transition:.25s}
+  .switch input:checked + .slider:before{transform:translateX(63px);background:linear-gradient(135deg,var(--red),#c94747)}
+  .switch .txt{position:absolute;top:0;height:38px;display:flex;align-items:center;font-size:11.5px;font-weight:700;letter-spacing:.5px;color:var(--ink);pointer-events:none}
+  .switch .txt.h{left:12px}.switch .txt.t{right:14px;opacity:.5}
+  .switch input:checked ~ .txt.h{opacity:.5}.switch input:checked ~ .txt.t{opacity:1}
+  #modeLabel{font-size:14px;font-weight:600}
+  .btn{background:linear-gradient(135deg,var(--cu),var(--cu2));color:#1a1005;border:none;padding:11px 22px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;transition:.2s}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(232,137,77,.35)}
+  .btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+  .permstat{display:flex;gap:26px;margin-top:14px;flex-wrap:wrap}
+  .permstat div{font-size:13px;color:var(--muted)}
+  .permstat b{display:block;font-size:24px;color:var(--cu2);font-weight:800;font-variant-numeric:tabular-nums}
+  /* domain explorer */
+  .domains{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .dchip{background:var(--card2);border:1px solid var(--line);border-radius:11px;padding:13px 12px;cursor:pointer;transition:.18s;text-align:center}
+  .dchip:hover{border-color:var(--cu);transform:translateY(-2px)}
+  .dchip.active{border-color:var(--cu);background:rgba(232,137,77,.09);box-shadow:0 0 0 1px var(--cu)}
+  .dchip .dn{font-size:19px;font-weight:800;color:var(--cu2);font-variant-numeric:tabular-nums}
+  .dchip .dl{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.25}
+  #domainDetail{margin-top:16px;background:var(--card2);border:1px solid var(--line);border-left:4px solid var(--cu);border-radius:11px;padding:18px 22px}
+  #domainDetail h4{font-size:16px;margin-bottom:4px}
+  #domainDetail .row{font-size:13.5px;color:var(--muted);margin-top:5px}
+  #domainDetail .row b{color:var(--ink)}
+  .traps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .trap{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:15px}
+  .trap .t{font-size:11px;font-weight:700;color:var(--red);letter-spacing:1px;text-transform:uppercase}
+  .trap .h{font-weight:700;font-size:14px;margin:6px 0 5px}
+  .trap .x{font-size:12.5px;color:var(--muted)}
+  .callout{background:linear-gradient(135deg,rgba(42,157,143,.10),rgba(232,137,77,.06));
+    border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:0 12px 12px 0;
+    padding:18px 24px;margin-top:14px;font-size:15px}
+  .callout b{color:var(--cu2)}
+  footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+  code{background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;font-size:12px;color:var(--cu2)}
+  .pill{display:inline-block;font-size:11px;padding:2px 9px;border-radius:100px;border:1px solid var(--line);color:var(--muted);margin-left:6px}
+  @media(max-width:860px){.kpis,.traps,.domains{grid-template-columns:repeat(2,1fr)}.grid2,.checks{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Universal Soft-Sensor · Mining 4.0 · dashboard interactivo</div>
+    <h1>Predicción de recuperación de cobre — panel de resultados</h1>
+    <p class="lead">Un sensor virtual que estima la recuperación desde química de sondaje y dureza,
+    con pruebas que verifican que la señal es real y no azar ni fuga de datos. Interactuá con los
+    tres bloques marcados <span style="color:var(--cu2)">◆</span> para explorar la evidencia.</p>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><div class="n">0.319</div><div class="l">R² cobre real</div><div class="d">GeoMet · split por sondaje · sklearn 1.9</div></div>
+    <div class="kpi"><div class="n">0.005</div><div class="l">p-value · 200 perms</div><div class="d">&lt;0,5% de que sea azar</div></div>
+    <div class="kpi"><div class="n">≈ 0.00</div><div class="l">baseline (media)</div><div class="d">el modelo lo supera</div></div>
+    <div class="kpi"><div class="n">n = 92</div><div class="l">muestras · 21 sondajes</div><div class="d">único dataset abierto real</div></div>
+  </div>
+
+  <!-- interactive 1: permutation -->
+  <h2>◆ ¿Es señal real o casualidad? <span class="tag">interactivo · test de permutación</span></h2>
+  <p class="sub">Barajá el target al azar muchas veces. Si el modelo fuera humo, el R² real (0.319) caería dentro del montón de los barajados. Si queda afuera a la derecha, la señal es real. Apretá el botón y mirá.</p>
+  <div class="panel">
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn" id="btnShuffle">🎲 Barajar el target 200 veces</button>
+      <button class="btn" id="btnReset" style="background:var(--card2);color:var(--ink);border:1px solid var(--line)">Reiniciar</button>
+      <span class="pill">simulación ilustrativa del test confirmado (p=0.005 · 200 perms reales)</span>
+    </div>
+    <div class="chartbox"><canvas id="chartPerm"></canvas></div>
+    <div class="permstat">
+      <div>Barajados hechos<b id="permN">0</b></div>
+      <div>Superaron al real (0.319)<b id="permGE">0</b></div>
+      <div>p-value en vivo<b id="permP">—</b></div>
+      <div>Veredicto<b id="permVerdict" style="font-size:18px">—</b></div>
+    </div>
+  </div>
+
+  <!-- interactive 2: honesto vs trampa -->
+  <h2>◆ Honesto vs. trampa <span class="tag">interactivo · el mismo dato, dos metodologías</span></h2>
+  <p class="sub">La literatura suele publicar aciertos altísimos que son fuga de datos. Movés el switch y ves cómo el MISMO dataset pasa de un número inflado (trampa) al honesto — la diferencia es solo la metodología de evaluación.</p>
+  <div class="panel">
+    <div class="toggle-wrap">
+      <label class="switch">
+        <input type="checkbox" id="trapToggle">
+        <span class="slider"></span>
+        <span class="txt h">HONESTO</span><span class="txt t">TRAMPA</span>
+      </label>
+      <span id="modeLabel" style="color:var(--green)">Modo honesto — metodología correcta</span>
+    </div>
+    <div class="chartbox"><canvas id="chartTrap"></canvas></div>
+    <p class="note" id="trapNote" style="margin-top:12px">GeoMet: split por sondaje (GroupKFold) evita que el modelo se copie muestras del mismo pozo. Flotación: solo sensores al instante, sin mirar el dato anterior.</p>
+  </div>
+
+  <!-- interactive 3: domain explorer -->
+  <h2>◆ El método a través de dominios <span class="tag">interactivo · clic en cada caso</span></h2>
+  <p class="sub">R² sensor-only (régimen desplegable). El caso de negocio real es cobre; el resto es referencia técnica. Hacé clic en cada uno para ver el detalle honesto.</p>
+  <div class="panel">
+    <div class="domains" id="domainChips"></div>
+    <div id="domainDetail"></div>
+  </div>
+
+  <!-- static: 4 self-checks + extrapolation -->
+  <h2>Las 4 preguntas que el sistema se hace <span class="tag">para no engañarse</span></h2>
+  <div class="checks">
+    <div class="check"><span class="badge">✓ PASA</span><div class="q">1 · ¿Le gana a adivinar el promedio?</div><div class="a">Modelo R²=0.319 vs baseline (media) R²≈0.00. Si no lo superara, no aportaría nada.</div></div>
+    <div class="check"><span class="badge">✓ SEÑAL REAL</span><div class="q">2 · ¿Es señal o casualidad?</div><div class="a">Test de permutación, 200 barajados: p=0.005. Menos de 0,5% de que sea suerte.</div></div>
+    <div class="check"><span class="badge">✓ CALIBRADA</span><div class="q">3 · ¿La incertidumbre es confiable?</div><div class="a">El GP da un margen de error medido (cobertura ≈95%, sharpness, NLL), no una banda decorativa.</div></div>
+    <div class="check"><span class="badge">✓ DEGRADA CON GRACIA</span><div class="q">4 · ¿Sabe cuándo no sabe?</div><div class="a">Fuera del rango de dureza/ley, ensancha su margen 1,3–1,7× en vez de equivocarse con confianza.</div></div>
+  </div>
+
+  <div class="grid2" style="margin-top:20px">
+    <div class="panel">
+      <h3>La dureza destraba la predicción</h3>
+      <p class="note">R² por conjunto de features (target LCT, split por sondaje). Solo química no basta; sumar dureza F80/P80 hace aparecer la señal.</p>
+      <div class="chartbox"><canvas id="chartHardness"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>El GP ensancha su incertidumbre fuera de rango</h3>
+      <p class="note">Test de extrapolación: razón σ&nbsp;exterior / σ&nbsp;interior. &gt;1 = "sabe que no sabe". Verificado sobre GeoMet cobre real.</p>
+      <div class="chartbox"><canvas id="chartExtrap"></canvas></div>
+    </div>
+  </div>
+
+  <h2>Los 4 autoengaños que el sistema caza <span class="tag">rigor metodológico</span></h2>
+  <div class="traps">
+    <div class="trap"><div class="t">Trampa 01</div><div class="h">Leakage autorregresivo</div><div class="x">Rezagos del target inflan CMAPSS de 0.59 a 0.87 — cuasi-persistencia, no señal.</div></div>
+    <div class="trap"><div class="t">Trampa 02</div><div class="h">Split degenerado</div><div class="x">El split secuencial de ZeMA deja el test con una sola clase → R² indefinido.</div></div>
+    <div class="trap"><div class="t">Trampa 03</div><div class="h">Persistencia inflada</div><div class="x">El lab repetido ~174 filas/hora da un R²=0.998 falso a nivel de fila.</div></div>
+    <div class="trap"><div class="t">Trampa 04</div><div class="h">Tautología feature↔target</div><div class="x">Un R²=0.77 que solo leía la ley de Cu ya presente en la entrada — descartado.</div></div>
+  </div>
+
+  <div class="callout">
+    En una frase: <b>construí una calculadora que estima la recuperación de cobre al instante,
+    y le puse pruebas para asegurarme de que no me miente ni se engaña a sí misma.</b>
+    El edge robusto vive en cobre (R²=0.319, p=0.005, 200 permutaciones) — modesto pero verificado con rigor de paper.
+  </div>
+
+  <footer>
+    <b>Correr en localhost:</b> <code>python -m http.server 8000</code> y entrá a
+    <code>http://localhost:8000/dashboard.html</code> (o abrí el archivo directo). Datos:
+    <code>results/verification/*.json</code>, confirmados con <code>verify_geomet_number.py</code>
+    (sklearn 1.9.0). <b>porphyry_01 es sintético</b> — valida escala del método, no es evidencia de negocio.
+    La animación del test de permutación es ilustrativa; el p=0.005 proviene de la corrida real de 200 permutaciones.
+  </footer>
+</div>
+
+<script>
+Chart.defaults.color='#8b98ab';Chart.defaults.font.family="'Segoe UI',system-ui,sans-serif";Chart.defaults.font.size=12;
+const GRID='rgba(35,48,74,.6)',CU='#e8894d',CU2='#f4a261',TEAL='#2a9d8f',GREEN='#3ddc84',RED='#e85d5d',YELLOW='#e9c46a',BLUE='#4da6e8';
+const REAL_R2=0.319;
+
+/* ============ INTERACTIVO 1: permutación ============ */
+// Distribución nula ilustrativa: target barajado -> R² colapsa cerca de 0 (típicamente negativo).
+// Caja/bins del histograma:
+const BINS=[]; for(let x=-1.0;x<0.45;x+=0.05) BINS.push(+x.toFixed(2));
+let permCounts=new Array(BINS.length).fill(0), permDone=0, permGE=0, permTimer=null;
+function binIndex(v){for(let i=BINS.length-1;i>=0;i--){if(v>=BINS[i])return i;}return 0;}
+// muestreador de la nula: ~N(-0.15,0.14), recortado; ~1/200 supera 0.319 (coherente con p≈0.005)
+function drawNull(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();
+  let z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);let r=-0.15+0.14*z;return Math.max(-1.0,Math.min(0.44,r));}
+const permChart=new Chart(document.getElementById('chartPerm'),{
+  type:'bar',
+  data:{labels:BINS.map(b=>b.toFixed(2)),datasets:[{label:'R² con target barajado (nula)',data:permCounts,
+    backgroundColor:'rgba(77,166,232,.55)',borderColor:BLUE,borderWidth:1,borderRadius:3,categoryPercentage:1,barPercentage:1}]},
+  options:{responsive:true,maintainAspectRatio:false,animation:false,
+    plugins:{legend:{labels:{color:'#8b98ab'}}},
+    scales:{y:{grid:{color:GRID},title:{display:true,text:'frecuencia'}},
+      x:{grid:{display:false},title:{display:true,text:'R² (cross-validated)'},
+        ticks:{callback:function(v){const b=BINS[v];return (Math.abs(b*100)%20<1)?b.toFixed(1):''}}}}},
+  plugins:[{id:'realLine',afterDraw:(ch)=>{const {ctx,chartArea:{top,bottom},scales:{x}}=ch;
+    const xx=x.getPixelForValue(binIndex(REAL_R2));ctx.save();ctx.strokeStyle=CU;ctx.lineWidth=2.5;ctx.setLineDash([6,4]);
+    ctx.beginPath();ctx.moveTo(xx,top);ctx.lineTo(xx,bottom);ctx.stroke();
+    ctx.setLineDash([]);ctx.fillStyle=CU;ctx.font='bold 12px Segoe UI';ctx.textAlign='center';
+    ctx.fillText('R² real = 0.319',xx,top+12);ctx.restore();}}]
+});
+function permStep(batch){for(let i=0;i<batch;i++){if(permDone>=200)break;const r=drawNull();
+    permCounts[binIndex(r)]++;permDone++;if(r>=REAL_R2)permGE++;}
+  permChart.data.datasets[0].data=permCounts;permChart.update();
+  document.getElementById('permN').textContent=permDone;
+  document.getElementById('permGE').textContent=permGE;
+  const p=((permGE+1)/(permDone+1));
+  document.getElementById('permP').textContent=permDone?p.toFixed(4):'—';
+  const vEl=document.getElementById('permVerdict');
+  if(permDone>=200){vEl.textContent=(p<0.05)?'✅ señal real':'🔴 azar';vEl.style.color=(p<0.05)?GREEN:RED;}
+}
+document.getElementById('btnShuffle').onclick=function(){this.disabled=true;
+  permTimer=setInterval(()=>{permStep(4);if(permDone>=200){clearInterval(permTimer);document.getElementById('btnShuffle').disabled=false;}},30);};
+document.getElementById('btnReset').onclick=function(){clearInterval(permTimer);
+  permCounts.fill(0);permDone=0;permGE=0;permChart.data.datasets[0].data=permCounts;permChart.update();
+  document.getElementById('permN').textContent='0';document.getElementById('permGE').textContent='0';
+  document.getElementById('permP').textContent='—';const v=document.getElementById('permVerdict');v.textContent='—';v.style.color='';
+  document.getElementById('btnShuffle').disabled=false;};
+
+/* ============ INTERACTIVO 2: honesto vs trampa ============ */
+// datos reales: GeoMet random-KFold infla a ~0.93 (leakage por sondaje) vs 0.319 honesto (CLAUDE.md);
+// flotación con rezago del target 0.983 (leakage) vs 0.008 sensor-only honesto (flotation_silica.json)
+const trapData={
+  honesto:{vals:[0.319,0.008],col:[GREEN,GREEN]},
+  trampa:{vals:[0.93,0.983],col:[RED,RED]}
+};
+const trapChart=new Chart(document.getElementById('chartTrap'),{
+  type:'bar',
+  data:{labels:['GeoMet cobre','Flotación hierro (% sílica)'],
+    datasets:[{label:'R²',data:trapData.honesto.vals,backgroundColor:['rgba(61,220,132,.75)','rgba(61,220,132,.75)'],
+      borderColor:trapData.honesto.col,borderWidth:1.5,borderRadius:6}]},
+  options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'R² = '+c.parsed.y.toFixed(3)}}},
+    scales:{y:{grid:{color:GRID},suggestedMin:0,suggestedMax:1,title:{display:true,text:'R²'}},x:{grid:{display:false}}}}
+});
+document.getElementById('trapToggle').onchange=function(){
+  const mode=this.checked?'trampa':'honesto';const d=trapData[mode];
+  trapChart.data.datasets[0].data=d.vals;
+  trapChart.data.datasets[0].backgroundColor=d.col.map(c=>c===GREEN?'rgba(61,220,132,.75)':'rgba(232,93,93,.7)');
+  trapChart.data.datasets[0].borderColor=d.col;trapChart.update();
+  const lab=document.getElementById('modeLabel'),note=document.getElementById('trapNote');
+  if(this.checked){lab.textContent='Modo trampa — metodología con fuga de datos';lab.style.color=RED;
+    note.textContent='GeoMet: KFold aleatorio deja muestras del mismo sondaje en train y test → el modelo se las copia (R²≈0.93 falso). Flotación: dejar que el modelo mire el dato de laboratorio anterior → R²≈0.98 falso.';}
+  else{lab.textContent='Modo honesto — metodología correcta';lab.style.color=GREEN;
+    note.textContent='GeoMet: split por sondaje (GroupKFold) evita que el modelo se copie muestras del mismo pozo. Flotación: solo sensores al instante, sin mirar el dato anterior.';}
+};
+
+/* ============ INTERACTIVO 3: explorador de dominios ============ */
+const DOMAINS=[
+  {k:'ZeMA cooler',r2:0.994,model:'GradientBoosting',type:'Condición de refrigerador (3 niveles)',n:'2.205 filas',
+   note:'Mejor R² del set, pero es condición discreta con señal fuerte. El fallback GB compensa donde el GP no converge.'},
+  {k:'porphyry (sint.)',r2:0.769,model:'GradientBoosting',type:'Recuperación · SINTÉTICO',n:'20.000 filas',
+   note:'⚠️ Dataset sintético (Garrido et al. 2020). NO es evidencia de negocio: valida que el método detecta señal fuerte cuando existe, a 200× el tamaño de GeoMet.'},
+  {k:'CMAPSS RUL',r2:0.593,model:'GP (Matérn)',type:'Vida útil remanente de turbofan',n:'20.631 filas',
+   note:'Régimen sensor-only honesto. Los métodos profundos especializados llegan a RMSE 12-16; este es baseline honesto (RMSE 50), no récord.'},
+  {k:'GeoMet cobre',r2:0.319,model:'GP→GB',type:'Recuperación metalúrgica · CASO REAL',n:'92 filas · 21 sondajes',
+   note:'El único edge de negocio robusto y verificado. p=0.005 (200 permutaciones), split por sondaje, independiente de la ley de Cu (r=0.07). La dureza es la que destraba la predicción.'},
+  {k:'AI4I (fuera)',r2:0.169,model:'GradientBoosting',type:'Clasificación binaria de falla',n:'10.000 filas',
+   note:'Fuera de alcance: el pipeline es de regresión, R² es la métrica incorrecta acá. Se mantiene solo como referencia técnica.'}
+];
+const chipWrap=document.getElementById('domainChips');
+DOMAINS.forEach((d,i)=>{const el=document.createElement('div');el.className='dchip'+(d.k.includes('GeoMet')?' active':'');
+  el.innerHTML=`<div class="dn">${d.r2.toFixed(3)}</div><div class="dl">${d.k}</div>`;
+  el.onclick=()=>{document.querySelectorAll('.dchip').forEach(c=>c.classList.remove('active'));el.classList.add('active');showDomain(i);};
+  chipWrap.appendChild(el);});
+function showDomain(i){const d=DOMAINS[i];document.getElementById('domainDetail').innerHTML=
+  `<h4>${d.k} &nbsp;<span class="pill">R² = ${d.r2.toFixed(3)}</span></h4>
+   <div class="row"><b>Tarea:</b> ${d.type}</div>
+   <div class="row"><b>Modelo usado:</b> ${d.model} &nbsp;·&nbsp; <b>Datos:</b> ${d.n}</div>
+   <div class="row" style="margin-top:9px">${d.note}</div>`;}
+showDomain(3); // arranca en GeoMet cobre
+
+/* ============ estáticos ============ */
+new Chart(document.getElementById('chartHardness'),{type:'bar',
+  data:{labels:['Solo química','Química + dureza'],datasets:[{label:'R² (recuperación LCT)',data:[-0.033,0.330],
+    backgroundColor:['rgba(232,93,93,.55)','rgba(61,220,132,.75)'],borderColor:[RED,GREEN],borderWidth:1.5,borderRadius:6}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},
+    tooltip:{callbacks:{afterLabel:c=>c.dataIndex===0?'p=0.060 · no distinguible de azar':'p=0.005 · señal real'}}},
+    scales:{y:{grid:{color:GRID},title:{display:true,text:'R²'},suggestedMin:-0.1,suggestedMax:0.4},x:{grid:{display:false}}}}});
+
+new Chart(document.getElementById('chartExtrap'),{type:'bar',
+  data:{labels:['F80 (dureza)','P80 (dureza)','Cu ppm (ley)'],datasets:[{label:'σ exterior / σ interior',data:[1.67,1.27,1.36],
+    backgroundColor:'rgba(77,166,232,.65)',borderColor:BLUE,borderWidth:1.5,borderRadius:6}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},
+    tooltip:{callbacks:{afterLabel:c=>['cobertura ext.: 92%','cobertura ext.: 69%','cobertura ext.: 100%'][c.dataIndex]}}},
+    scales:{y:{grid:{color:GRID},title:{display:true,text:'razón σ (>1 = sano)'},suggestedMin:0,suggestedMax:2},x:{grid:{display:false}}}},
+  plugins:[{id:'l1',afterDraw:(ch)=>{const {ctx,scales:{y}}=ch;const yy=y.getPixelForValue(1);
+    ctx.save();ctx.strokeStyle=YELLOW;ctx.setLineDash([5,4]);ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(ch.chartArea.left,yy);ctx.lineTo(ch.chartArea.right,yy);ctx.stroke();ctx.restore();}}]});
+</script>
+</body>
+</html>
