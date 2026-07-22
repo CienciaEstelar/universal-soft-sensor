@@ -163,6 +163,14 @@ class ModelMetrics:
             Un GP bien calibrado da ~0.95. <0.95 = sobre-confiado (bandas muy
             angostas); >0.95 = sub-confiado (bandas muy anchas). Igual que NLL,
             solo aplica al GP; None para el fallback GB.
+        sharpness: [P3 ROADMAP — calibración] Ancho medio del intervalo de
+            confianza del 95%: mean(2·1.96·σ), en las MISMAS unidades que el
+            target. Complemento obligatorio de coverage_95: la cobertura sola
+            es engañable — un modelo logra cobertura ~1.0 con bandas
+            absurdamente anchas (inútiles en la práctica). Se leen juntas: la
+            meta es cobertura ≈0.95 CON la menor sharpness posible (bandas
+            angostas pero honestas). Menor = mejor, PERO solo si la cobertura
+            se mantiene cerca de 0.95. Solo aplica al GP; None para el GB.
     """
     r2: float = 0.0
     rmse: float = 0.0
@@ -171,6 +179,7 @@ class ModelMetrics:
     permutation_p_value: Optional[float] = None
     nll: Optional[float] = None
     coverage_95: Optional[float] = None
+    sharpness: Optional[float] = None
 
     def to_dict(self) -> dict:
         """Convierte las métricas a diccionario (útil para JSON)."""
@@ -181,6 +190,8 @@ class ModelMetrics:
             d["nll"] = self.nll
         if self.coverage_95 is not None:
             d["coverage_95"] = self.coverage_95
+        if self.sharpness is not None:
+            d["sharpness"] = self.sharpness
         return d
 
     def __repr__(self) -> str:
@@ -191,6 +202,8 @@ class ModelMetrics:
             base += f", NLL={self.nll:.4f}"
         if self.coverage_95 is not None:
             base += f", Cov95={self.coverage_95:.3f}"
+        if self.sharpness is not None:
+            base += f", Sharp={self.sharpness:.4f}"
         return base
 
 
@@ -1255,6 +1268,7 @@ class SoftSensorGP:
         # número que parezca informativo pero no lo sea.
         nll = None
         coverage_95 = None
+        sharpness = None
         if y_std is not None:
             y_std_arr = np.asarray(y_std, dtype=float).ravel()
             if y_std_arr.shape == y_true.shape and np.all(np.isfinite(y_std_arr)) and np.all(y_std_arr > 0):
@@ -1263,6 +1277,10 @@ class SoftSensorGP:
                 nll = float(0.5 * np.mean(np.log(2 * np.pi * var) + (y_true - y_pred) ** 2 / var))
                 # Coverage empírico del IC 95% (banda ±1.96σ)
                 coverage_95 = float(np.mean(np.abs(y_true - y_pred) <= 1.96 * y_std_arr))
+                # Sharpness: ancho medio del IC 95% = mean(2·1.96·σ). En las
+                # mismas unidades que el target. Complemento de coverage_95:
+                # una cobertura alta con sharpness enorme = bandas inútiles.
+                sharpness = float(np.mean(2 * 1.96 * y_std_arr))
 
         self.metrics = ModelMetrics(
             r2=r2,
@@ -1271,6 +1289,7 @@ class SoftSensorGP:
             mape=mape,
             nll=nll,
             coverage_95=coverage_95,
+            sharpness=sharpness,
         )
 
         return self.metrics
@@ -1587,6 +1606,11 @@ class SoftSensorGP:
                     metrics_rows.append((
                         "Cobertura IC 95%", f"{self.metrics.coverage_95:.3f}", cov_interp,
                     ))
+                if self.metrics.sharpness is not None:
+                    metrics_rows.append((
+                        "Sharpness (ancho IC 95%)", f"{self.metrics.sharpness:.4f}",
+                        "Ancho medio de la banda — leer junto a la cobertura",
+                    ))
                 if self.metrics.nll is not None:
                     metrics_rows.append((
                         "NLL (calibración)", f"{self.metrics.nll:.4f}",
@@ -1777,6 +1801,12 @@ class SoftSensorGP:
                 "Cobertura IC 95%",
                 f"[{cov_color}]{metrics.coverage_95:.3f}[/{cov_color}]",
                 cov_interp,
+            )
+        if metrics.sharpness is not None:
+            table.add_row(
+                "Sharpness (ancho IC 95%)",
+                f"{metrics.sharpness:.4f}",
+                "Ancho medio de la banda — leer junto a la cobertura",
             )
         if metrics.nll is not None:
             table.add_row("NLL (calibración)", f"{metrics.nll:.4f}", "Menor = mejor (media+incertidumbre)")

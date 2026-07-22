@@ -801,8 +801,8 @@ class TestUncertaintyCalibration:
         assert metrics.coverage_95 is None
 
     def test_calibration_survives_dict_and_repr(self):
-        """to_dict() y __repr__ deben incluir nll/coverage_95 cuando existen y
-        omitirlos cuando son None (contrato de serialización)."""
+        """to_dict() y __repr__ deben incluir nll/coverage_95/sharpness cuando
+        existen y omitirlos cuando son None (contrato de serialización)."""
         m = self._model()
         rng = np.random.default_rng(4)
         n = 300
@@ -811,13 +811,66 @@ class TestUncertaintyCalibration:
 
         with_std = m.evaluate(y_true, y_pred, y_std=np.full(n, 0.1))
         d = with_std.to_dict()
-        assert "nll" in d and "coverage_95" in d
-        assert "Cov95" in repr(with_std) and "NLL" in repr(with_std)
+        assert "nll" in d and "coverage_95" in d and "sharpness" in d
+        r = repr(with_std)
+        assert "Cov95" in r and "NLL" in r and "Sharp" in r
 
         without = m.evaluate(y_true, y_pred, y_std=np.zeros(n))
         d2 = without.to_dict()
-        assert "nll" not in d2 and "coverage_95" not in d2
-        assert "Cov95" not in repr(without)
+        assert "nll" not in d2 and "coverage_95" not in d2 and "sharpness" not in d2
+        assert "Sharp" not in repr(without)
+
+    def test_sharpness_is_exact_interval_width(self):
+        """Sharpness debe ser el ancho medio del IC 95% = mean(2·1.96·σ),
+        verificable de forma determinista para σ constante."""
+        m = self._model()
+        y_true = np.zeros(50)
+        y_pred = np.zeros(50)
+        y_std = np.full(50, 0.1)  # ancho esperado: 2*1.96*0.1 = 0.392
+
+        metrics = m.evaluate(y_true, y_pred, y_std=y_std)
+
+        assert metrics.sharpness == pytest.approx(2 * 1.96 * 0.1)
+
+    def test_sharpness_scales_with_sigma(self):
+        """A mayor σ, mayor sharpness (bandas más anchas) — proporcional."""
+        m = self._model()
+        y_true = np.zeros(50)
+        y_pred = np.zeros(50)
+
+        s_small = m.evaluate(y_true, y_pred, y_std=np.full(50, 0.1)).sharpness
+        s_large = m.evaluate(y_true, y_pred, y_std=np.full(50, 0.2)).sharpness
+
+        assert s_large == pytest.approx(2 * s_small)
+
+    def test_sharpness_none_for_gb_and_missing_std(self):
+        """Sharpness sigue el mismo guard que NLL/Cov95: None para σ=0 (GB) y
+        cuando no se pasa y_std."""
+        m = self._model()
+        y_true = np.array([0.0, 1.0, 2.0])
+        y_pred = np.array([0.1, 0.9, 2.1])
+
+        assert m.evaluate(y_true, y_pred, y_std=np.zeros(3)).sharpness is None
+        assert m.evaluate(y_true, y_pred).sharpness is None
+
+    def test_coverage_and_sharpness_together_expose_wide_band_trap(self):
+        """La razón de ser de sharpness: un modelo con bandas absurdamente
+        anchas logra cobertura ~1.0 pero sharpness enorme. Cobertura sola no
+        lo delata; sharpness sí. Este test documenta ese contraste."""
+        m = self._model()
+        rng = np.random.default_rng(7)
+        n = 500
+        y_true = rng.normal(0, 1, n)
+        y_pred = y_true + rng.normal(0, 0.1, n)
+
+        honesto = m.evaluate(y_true, y_pred, y_std=np.full(n, 0.1))
+        inflado = m.evaluate(y_true, y_pred, y_std=np.full(n, 5.0))
+
+        # Ambos con cobertura alta...
+        assert honesto.coverage_95 >= 0.90
+        assert inflado.coverage_95 >= 0.99
+        # ...pero el inflado tiene sharpness mucho peor (bandas ~50x más anchas).
+        assert inflado.sharpness > 10 * honesto.sharpness
 
 
 if __name__ == "__main__":
