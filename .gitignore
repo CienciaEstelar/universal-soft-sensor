@@ -84,3 +84,8 @@ dist/
 paper/*.aux
 paper/*.log
 paper/*.out
+
+# =========================
+# Claude Code local config (workflow interno, no debe ser público)
+# =========================
+.claude/
