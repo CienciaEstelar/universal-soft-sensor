@@ -72,19 +72,7 @@ El modelo lo capta solo, sin que se lo digan.
 
 **Salvedad honesta:** n=92 muestras es chico. El R²=0.33 es señal de dirección
 robusta, no métrica final. Justifica conseguir más datos / un dataset de planta real
-para confirmar y hacer crecer el número. Ese es el argumento del piloto.
-
----
-
-## Implicación de negocio (honesta)
-
-- ❌ **Ley de concentrado** (sílica/hierro): dominada por persistencia, no sensor-predecible.
-  No es el caso.
-- ✅ **Recuperación de cobre**: señal real modesta (R²~0.33), independiente de la ley,
-  verificada con rigor. **Este es el caso** — soft-sensor geometalúrgico de recuperación.
-- 🎯 **Pitch defendible:** "predecir recuperación más allá de la ley de cabeza, con
-  evidencia que sobrevive permutation test". NO vender el 0.93 (tautológico, se cae
-  ante un metalurgista).
+para confirmar y hacer crecer el número.
 
 ---
 
