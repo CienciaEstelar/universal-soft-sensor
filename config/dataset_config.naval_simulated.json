@@ -1,0 +1,38 @@
+{
+  "dataset_name": "naval_propulsion_simulated_uci316",
+  "description": "SIMULADO — NO es evidencia de desempeño en planta. UCI dataset 316 'Condition Based Maintenance of Naval Propulsion Plants' (Coraddu et al. 2016, Proc. IMechE Part M 230(1):136-153; CC BY 4.0). 11,934 puntos de un simulador numérico de fragata con turbina a gas, en grilla uniforme de degradación (26 niveles de turbina x 51 de compresor x 9 velocidades), sin ruido de sensor y sin dimensión temporal. Target: turbine_decay (kMt). Único caso NO minero con señal física directa sensor->estado. Evaluación honesta (split por nivel de degradación, extrapolación, ruido, GP) en run_naval_rigor.py; resultados en results/verification/naval_rigor.json. Preparar con prepare_naval_dataset.py antes de usar.",
+  "files": {
+    "filename": "naval_propulsion/naval_propulsion.csv",
+    "timestamp_column": "no_aplica_es_grilla_de_simulacion_sin_tiempo",
+    "separator": ","
+  },
+  "modeling": {
+    "target_column": "turbine_decay",
+    "problem_type": "regression",
+    "notes": "Target alternativo: compressor_decay (cambiar target_column). El otro coeficiente de degradación se excluye siempre como feature vía exclude_patterns '_decay' (el adapter protege al target activo). Para el pipeline completo: train_universal.py lee config/dataset_config.json fijo, así que hay que copiar este archivo encima (respaldando el actual) y entrenar con --no-lags --no-diffs — los rezagos del target no tienen sentido en una grilla sin tiempo y serían leakage entre puntos vecinos."
+  },
+  "feature_engineering": {
+    "include_patterns": [
+      "lp", "v", "GTT", "GTn", "GGn", "Ts", "Tp",
+      "T48", "T1", "T2", "P48", "P1", "P2", "Pexh", "TIC", "mf"
+    ],
+    "exclude_patterns": [
+      "_decay"
+    ],
+    "forced_drop": [],
+    "group_column": null,
+    "parse_dates": false,
+    "notes": "T1 y P1 son constantes en todo el dataset (condiciones ambientales fijas del simulador); SoftSensorGP las elimina con remove_constant_features. LIMITACIÓN CONOCIDA: SoftSensorGP también aplica remove_correlated_features (umbral 0.98, no configurable desde este JSON) y aquí los sensores están físicamente correlacionados (todos responden al mismo estado de la máquina) — en el repo legacy, eliminarlos hundía el R² de 0.96 a -0.34. Por eso el número de referencia sale de run_naval_rigor.py (usa los 16 sensores), no del pipeline. Sin group_column: el grupo natural es el nivel de degradación, que es el propio target — el split por nivel se hace en run_naval_rigor.py."
+  },
+  "preprocessing": {
+    "handle_nulls": "none",
+    "handle_outliers": "robust_scaler",
+    "feature_scaling": "robust"
+  },
+  "training": {
+    "test_size": 0.2,
+    "validation_strategy": "random_shuffle_split",
+    "random_state": 42,
+    "notes": "El split aleatorio del pipeline mide INTERPOLACIÓN en una grilla densa y da un número optimista. Para el número honesto usar run_naval_rigor.py."
+  }
+}

@@ -28,6 +28,7 @@ Pipeline **agnóstico al dominio** que reemplaza mediciones lentas o costosas (a
 | 🛩️ NASA CMAPSS | RUL turbofan | 🟡 R²=0.593 (moderado, no SOTA) |
 | ⛏️ Flotación hierro | % sílica del concentrado | 🔴 sin señal de sensores (dominado por persistencia) |
 | ⚙️ AI4I 2020 | fallo de máquina (binario) | 🔴 fuera de alcance (clasificación) |
+| 🚢 Turbina a gas naval (**SIMULADO**, UCI 316) | degradación de turbina | 🟡 R²=0.955 entre niveles de degradación ya vistos; 🔴 GB no extrapola a degradación peor que la vista (R²=−6.0). El GP sí extrapola sin ruido (R²=0.999, cobertura 0.99), pero con ≥0.5% de ruido de sensor se equivoca con confianza (cobertura 0.11). Ver `run_naval_rigor.py` |
 
 > 📊 **Mapa completo, honesto y reproducible en [`results/verification/FINDINGS.md`](results/verification/FINDINGS.md).** El pipeline detecta señal donde la hay y reporta cero donde no la hay — cazó 4 modos de autoengaño (leakage autorregresivo, split degenerado, tautología feature↔target, persistencia inflada) que la literatura suele publicar como aciertos. El edge robusto confirmado vive en **recuperación geometalúrgica de cobre** (R²=0.319, p=0.005, 200 permutaciones).
 
