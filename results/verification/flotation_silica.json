@@ -1,0 +1,23 @@
+{
+  "dataset": "MiningProcess_Flotation_Plant_Database.csv",
+  "target": "% Silica Concentrate",
+  "full_rows": 737453,
+  "baseline_media_r2": -0.0013,
+  "baseline_persist_r2": 0.9979,
+  "sensor_only": {
+    "r2": 0.0075,
+    "rmse": 1.1407,
+    "mae": 0.9124,
+    "mape": 47.4914,
+    "model": "GradientBoosting",
+    "elapsed_s": 80.0
+  },
+  "autoregressive": {
+    "r2": 0.9829,
+    "rmse": 0.1496,
+    "mae": 0.0334,
+    "mape": 1.5809,
+    "model": "GP",
+    "elapsed_s": 227.7
+  }
+}

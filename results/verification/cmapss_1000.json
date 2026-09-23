@@ -1,0 +1,13 @@
+{
+  "dataset": "nasa_cmaps_fd001.csv",
+  "target": "RUL",
+  "n_rows": 20631,
+  "model_used": "GP",
+  "elapsed_s": 34.8,
+  "metrics": {
+    "r2": 0.873152,
+    "rmse": 28.027845,
+    "mae": 7.667261,
+    "mape": 9.144272
+  }
+}

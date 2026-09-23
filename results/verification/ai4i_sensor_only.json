@@ -1,0 +1,13 @@
+{
+  "dataset": "ai4i2020.csv",
+  "target": "Machine failure",
+  "n_rows": 10000,
+  "model_used": "GradientBoosting",
+  "elapsed_s": 10.6,
+  "metrics": {
+    "r2": 0.16896,
+    "rmse": 0.126053,
+    "mae": 0.033893,
+    "mape": 75.686427
+  }
+}

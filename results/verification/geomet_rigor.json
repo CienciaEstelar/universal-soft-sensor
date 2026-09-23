@@ -1,0 +1,38 @@
+{
+  "quimica::xr": {
+    "grouped_r2": 0.7271,
+    "p_perm": 0.005,
+    "n": 49,
+    "n_holes": 28
+  },
+  "quimica::fr": {
+    "grouped_r2": -0.0008,
+    "p_perm": 0.0249,
+    "n": 49,
+    "n_holes": 28
+  },
+  "quimica::LCT": {
+    "grouped_r2": -0.0331,
+    "p_perm": 0.0597,
+    "n": 48,
+    "n_holes": 28
+  },
+  "quimica+dureza::xr": {
+    "grouped_r2": 0.7711,
+    "p_perm": 0.005,
+    "n": 96,
+    "n_holes": 21
+  },
+  "quimica+dureza::fr": {
+    "grouped_r2": 0.2554,
+    "p_perm": 0.005,
+    "n": 96,
+    "n_holes": 21
+  },
+  "quimica+dureza::LCT": {
+    "grouped_r2": 0.3296,
+    "p_perm": 0.005,
+    "n": 92,
+    "n_holes": 21
+  }
+}

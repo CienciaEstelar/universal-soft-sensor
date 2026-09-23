@@ -1,0 +1,13 @@
+{
+  "dataset": "zema_hydraulic_features.csv",
+  "target": "cooler_condition",
+  "n_rows": 2205,
+  "model_used": "GradientBoosting",
+  "elapsed_s": 11.7,
+  "metrics": {
+    "r2": 0.0,
+    "rmse": 9.676056,
+    "mae": 5.357351,
+    "mape": 5.357351
+  }
+}

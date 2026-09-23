@@ -1,0 +1,11 @@
+{
+  "baseline_r2_mean": -0.28930813404253286,
+  "baseline_r2_std": 0.9263595513163176,
+  "with_ratios_r2_mean": -0.29723721910085515,
+  "with_ratios_r2_std": 0.8482869478909687,
+  "ratios_added": [
+    "Cu_S_ratio",
+    "reduction_ratio",
+    "Ca_Mg_ratio"
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "chem::fr": {
+    "n": 49,
+    "target_mean": 0.248,
+    "target_std": 0.052,
+    "Lineal": {
+      "r2": -0.5525,
+      "mae": 0.045
+    },
+    "GradientBoosting": {
+      "r2": -0.0402,
+      "mae": 0.041
+    },
+    "RandomForest": {
+      "r2": 0.1242,
+      "mae": 0.037
+    },
+    "best_r2": 0.1242
+  },
+  "chem::xr": {
+    "n": 49,
+    "target_mean": 0.041,
+    "target_std": 0.018,
+    "Lineal": {
+      "r2": 0.5977,
+      "mae": 0.008
+    },
+    "GradientBoosting": {
+      "r2": 0.7619,
+      "mae": 0.006
+    },
+    "RandomForest": {
+      "r2": 0.7698,
+      "mae": 0.007
+    },
+    "best_r2": 0.7698
+  },
+  "chem::LCT": {
+    "n": 48,
+    "target_mean": 0.883,
+    "target_std": 0.049,
+    "Lineal": {
+      "r2": -1.1312,
+      "mae": 0.053
+    },
+    "GradientBoosting": {
+      "r2": 0.1383,
+      "mae": 0.037
+    },
+    "RandomForest": {
+      "r2": 0.2663,
+      "mae": 0.035
+    },
+    "best_r2": 0.2663
+  },
+  "chem+comm::fr": {
+    "n": 96,
+    "target_mean": 0.237,
+    "target_std": 0.045,
+    "Lineal": {
+      "r2": 0.4817,
+      "mae": 0.024
+    },
+    "GradientBoosting": {
+      "r2": 0.8242,
+      "mae": 0.01
+    },
+    "RandomForest": {
+      "r2": 0.7552,
+      "mae": 0.015
+    },
+    "best_r2": 0.8242
+  },
+  "chem+comm::xr": {
+    "n": 96,
+    "target_mean": 0.046,
+    "target_std": 0.017,
+    "Lineal": {
+      "r2": 0.8435,
+      "mae": 0.005
+    },
+    "GradientBoosting": {
+      "r2": 0.9332,
+      "mae": 0.002
+    },
+    "RandomForest": {
+      "r2": 0.9269,
+      "mae": 0.003
+    },
+    "best_r2": 0.9332
+  },
+  "chem+comm::LCT": {
+    "n": 92,
+    "target_mean": 0.886,
+    "target_std": 0.046,
+    "Lineal": {
+      "r2": 0.6486,
+      "mae": 0.021
+    },
+    "GradientBoosting": {
+      "r2": 0.8533,
+      "mae": 0.01
+    },
+    "RandomForest": {
+      "r2": 0.7846,
+      "mae": 0.015
+    },
+    "best_r2": 0.8533
+  }
+}

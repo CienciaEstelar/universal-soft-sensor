@@ -1,0 +1,17 @@
+{
+  "real_r2": 0.7685837545306134,
+  "p_value": 0.004975124378109453,
+  "n_permutations": 200,
+  "n_splits": 5,
+  "note": "SINTETICO (Garrido et al 2020, porphyry_01) - NO es evidencia de negocio, valida generalizacion del metodo a n grande",
+  "n_sample": 20000,
+  "n_total_available": 100000,
+  "feature_names": [
+    "chalcocite",
+    "bornite",
+    "cu",
+    "mo",
+    "as",
+    "bwi"
+  ]
+}

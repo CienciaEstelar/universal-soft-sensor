@@ -1,0 +1,13 @@
+{
+  "dataset": "zema_stratified.csv",
+  "target": "cooler_condition",
+  "n_rows": 2205,
+  "model_used": "GradientBoosting",
+  "elapsed_s": 11.1,
+  "metrics": {
+    "r2": 0.994124,
+    "rmse": 3.250932,
+    "mae": 1.165518,
+    "mape": 18.436422
+  }
+}

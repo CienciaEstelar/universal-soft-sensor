@@ -1,0 +1,46 @@
+{
+  "% Silica Concentrate": {
+    "1h": {
+      "model_r2": -0.0195,
+      "persist_r2": 0.6101
+    },
+    "3h": {
+      "model_r2": -0.0524,
+      "persist_r2": 0.2371
+    },
+    "6h": {
+      "model_r2": -0.3238,
+      "persist_r2": -0.1622
+    },
+    "12h": {
+      "model_r2": -0.472,
+      "persist_r2": -0.589
+    },
+    "24h": {
+      "model_r2": -0.1658,
+      "persist_r2": -0.5793
+    }
+  },
+  "% Iron Concentrate": {
+    "1h": {
+      "model_r2": -0.0297,
+      "persist_r2": 0.4561
+    },
+    "3h": {
+      "model_r2": -0.1486,
+      "persist_r2": 0.084
+    },
+    "6h": {
+      "model_r2": -0.3745,
+      "persist_r2": -0.2952
+    },
+    "12h": {
+      "model_r2": -0.5608,
+      "persist_r2": -0.7148
+    },
+    "24h": {
+      "model_r2": -0.543,
+      "persist_r2": -0.5253
+    }
+  }
+}

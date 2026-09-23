@@ -1,0 +1,264 @@
+{
+  "_meta": {
+    "dataset": "UCI 316 Condition Based Maintenance of Naval Propulsion Plants (Coraddu et al. 2016) — SIMULADO, CC BY 4.0",
+    "sklearn": "1.9.1",
+    "seed": 42,
+    "holdout_frac_extrapolacion": 0.4,
+    "nota_ruido": "niveles de ruido = supuestos de sensibilidad, no medidos",
+    "elapsed_seconds": 1305.8
+  },
+  "turbine_decay": {
+    "n": 11934,
+    "n_niveles": 26,
+    "rango": [
+      0.975,
+      1.0
+    ],
+    "1_split_aleatorio": {
+      "r2": 0.9592,
+      "mae_milesimas": 1.069
+    },
+    "2_groupkfold_por_nivel": {
+      "r2": 0.9552,
+      "mae_milesimas": 1.13
+    },
+    "3_extrapolacion": {
+      "train": "turbine_decay >= 0.985 (7344 filas, 16 niveles)",
+      "test": "turbine_decay < 0.985 (4590 filas, 10 niveles)",
+      "real_min": 0.975,
+      "gradient_boosting": {
+        "r2": -5.9686,
+        "mae_milesimas": 6.914,
+        "pred_min": 0.9837
+      },
+      "ridge_lineal": {
+        "r2": -1.1254,
+        "mae_milesimas": 3.6,
+        "pred_min": 0.967
+      },
+      "media_del_train": {
+        "r2": -20.4848,
+        "mae_milesimas": 13.0
+      }
+    },
+    "4_ruido_sensor": {
+      "0.1%": {
+        "r2": 0.9256,
+        "mae_milesimas": 1.48
+      },
+      "0.5%": {
+        "r2": 0.7723,
+        "mae_milesimas": 2.859
+      },
+      "1.0%": {
+        "r2": 0.5799,
+        "mae_milesimas": 3.982
+      }
+    },
+    "5_gp_extrapolacion": {
+      "n_fit": 800,
+      "n_holdout_interior": 1000,
+      "n_exterior": 1000,
+      "interior": {
+        "r2": 1.0,
+        "mae_milesimas": 0.013,
+        "coverage95": 0.981
+      },
+      "exterior": {
+        "r2": 0.9988,
+        "mae_milesimas": 0.062,
+        "coverage95": 0.989,
+        "pred_min": 0.9746
+      },
+      "std_ratio_ext_int": 3.18,
+      "graceful": true,
+      "kernel": "316**2 * Matern(length_scale=[3.58, 1.51e+04, 18.6, 11.2, 37.2, 6.71e+03, 1e+05, 174, 97.9, 1e+05, 45.5, 1e+05, 3.63e+03, 4.54e+04], nu=1.5) + WhiteKernel(noise_level=1e-05)"
+    },
+    "5b_gp_extrapolacion_con_ruido": {
+      "0.1%": {
+        "n_fit": 800,
+        "n_holdout_interior": 1000,
+        "n_exterior": 1000,
+        "interior": {
+          "r2": 0.9791,
+          "mae_milesimas": 0.531,
+          "coverage95": 0.95
+        },
+        "exterior": {
+          "r2": 0.9238,
+          "mae_milesimas": 0.653,
+          "coverage95": 0.956,
+          "pred_min": 0.9732
+        },
+        "std_ratio_ext_int": 1.22,
+        "graceful": true,
+        "kernel": "316**2 * Matern(length_scale=[1e+05, 1e+05, 6.97, 1e+05, 66.4, 19.5, 7.37, 98, 1e+05, 235, 92.5, 1e+05, 13.7, 7.2e+03, 73.4, 49.8], nu=1.5) + WhiteKernel(noise_level=0.018)"
+      },
+      "0.5%": {
+        "n_fit": 800,
+        "n_holdout_interior": 1000,
+        "n_exterior": 1000,
+        "interior": {
+          "r2": -0.0001,
+          "mae_milesimas": 4.07,
+          "coverage95": 1.0
+        },
+        "exterior": {
+          "r2": -19.544,
+          "mae_milesimas": 12.903,
+          "coverage95": 0.113,
+          "pred_min": 0.9924
+        },
+        "std_ratio_ext_int": 1.0,
+        "graceful": false,
+        "kernel": "1**2 * Matern(length_scale=[0.00817, 13.1, 0.000248, 0.00835, 0.0461, 0.364, 711, 0.000993, 1.39, 8.4, 2.91e-05, 11.9, 0.000507, 4.47e-05, 3.08e+04, 4.53e+04], nu=1.5) + WhiteKernel(noise_level=1e-05)"
+      },
+      "1.0%": {
+        "n_fit": 800,
+        "n_holdout_interior": 1000,
+        "n_exterior": 1000,
+        "interior": {
+          "r2": 0.317,
+          "mae_milesimas": 3.163,
+          "coverage95": 0.962
+        },
+        "exterior": {
+          "r2": -11.84,
+          "mae_milesimas": 9.895,
+          "coverage95": 0.286,
+          "pred_min": 0.9852
+        },
+        "std_ratio_ext_int": 1.05,
+        "graceful": true,
+        "kernel": "0.792**2 * Matern(length_scale=[0.248, 3.66e+03, 70.5, 24.8, 0.554, 623, 3.85e+03, 0.662, 17.8, 0.437, 0.26, 17.3, 0.079, 1e+05, 0.0572, 0.089], nu=1.5) + WhiteKernel(noise_level=0.507)"
+      }
+    }
+  },
+  "compressor_decay": {
+    "n": 11934,
+    "n_niveles": 51,
+    "rango": [
+      0.95,
+      1.0
+    ],
+    "1_split_aleatorio": {
+      "r2": 0.9825,
+      "mae_milesimas": 1.445
+    },
+    "2_groupkfold_por_nivel": {
+      "r2": 0.9833,
+      "mae_milesimas": 1.399
+    },
+    "3_extrapolacion": {
+      "train": "compressor_decay >= 0.97 (7254 filas, 31 niveles)",
+      "test": "compressor_decay < 0.97 (4680 filas, 20 niveles)",
+      "real_min": 0.95,
+      "gradient_boosting": {
+        "r2": -4.6153,
+        "mae_milesimas": 11.879,
+        "pred_min": 0.9616
+      },
+      "ridge_lineal": {
+        "r2": -2.066,
+        "mae_milesimas": 8.442,
+        "pred_min": 0.935
+      },
+      "media_del_train": {
+        "r2": -19.5564,
+        "mae_milesimas": 25.5
+      }
+    },
+    "4_ruido_sensor": {
+      "0.1%": {
+        "r2": 0.9562,
+        "mae_milesimas": 2.371
+      },
+      "0.5%": {
+        "r2": 0.8017,
+        "mae_milesimas": 5.189
+      },
+      "1.0%": {
+        "r2": 0.6044,
+        "mae_milesimas": 7.426
+      }
+    },
+    "5_gp_extrapolacion": {
+      "n_fit": 800,
+      "n_holdout_interior": 1000,
+      "n_exterior": 1000,
+      "interior": {
+        "r2": 1.0,
+        "mae_milesimas": 0.015,
+        "coverage95": 0.992
+      },
+      "exterior": {
+        "r2": 0.9982,
+        "mae_milesimas": 0.165,
+        "coverage95": 0.936,
+        "pred_min": 0.9486
+      },
+      "std_ratio_ext_int": 3.56,
+      "graceful": true,
+      "kernel": "316**2 * Matern(length_scale=[8.56, 61.8, 43, 236, 78.6, 1e+05, 1e+05, 493, 88.9, 2.69e+04, 57.2, 1e+05, 5.83e+03, 1e+05], nu=1.5) + WhiteKernel(noise_level=1e-05)"
+    },
+    "5b_gp_extrapolacion_con_ruido": {
+      "0.1%": {
+        "n_fit": 800,
+        "n_holdout_interior": 1000,
+        "n_exterior": 1000,
+        "interior": {
+          "r2": 0.974,
+          "mae_milesimas": 1.117,
+          "coverage95": 0.931
+        },
+        "exterior": {
+          "r2": 0.8874,
+          "mae_milesimas": 1.507,
+          "coverage95": 0.905,
+          "pred_min": 0.947
+        },
+        "std_ratio_ext_int": 1.14,
+        "graceful": true,
+        "kernel": "316**2 * Matern(length_scale=[3.55e+04, 1e+05, 14.4, 92.7, 54.2, 16.5, 1e+05, 77.1, 1e+05, 99.8, 34, 2.34e+04, 23.8, 9.53e+03, 176, 61.5], nu=1.5) + WhiteKernel(noise_level=0.0201)"
+      },
+      "0.5%": {
+        "n_fit": 800,
+        "n_holdout_interior": 1000,
+        "n_exterior": 1000,
+        "interior": {
+          "r2": -0.0088,
+          "mae_milesimas": 7.771,
+          "coverage95": 1.0
+        },
+        "exterior": {
+          "r2": -19.7775,
+          "mae_milesimas": 25.713,
+          "coverage95": 0.112,
+          "pred_min": 0.9854
+        },
+        "std_ratio_ext_int": 1.0,
+        "graceful": false,
+        "kernel": "1**2 * Matern(length_scale=[0.00817, 13.1, 0.000248, 0.00835, 0.0461, 0.364, 711, 0.000993, 1.39, 8.4, 2.91e-05, 11.9, 0.000507, 4.47e-05, 3.08e+04, 4.53e+04], nu=1.5) + WhiteKernel(noise_level=1e-05)"
+      },
+      "1.0%": {
+        "n_fit": 800,
+        "n_holdout_interior": 1000,
+        "n_exterior": 1000,
+        "interior": {
+          "r2": 0.3908,
+          "mae_milesimas": 5.604,
+          "coverage95": 0.95
+        },
+        "exterior": {
+          "r2": -9.0052,
+          "mae_milesimas": 16.81,
+          "coverage95": 0.359,
+          "pred_min": 0.9557
+        },
+        "std_ratio_ext_int": 1.02,
+        "graceful": true,
+        "kernel": "60.1**2 * Matern(length_scale=[6.03e+03, 6.48, 8.44, 1e+05, 64.5, 1e+05, 1.24e+04, 32.7, 5.31e+03, 68, 30.2, 1.03e+03, 13, 1e+05, 14.6, 14.3], nu=1.5) + WhiteKernel(noise_level=0.528)"
+      }
+    }
+  }
+}

@@ -36,7 +36,12 @@ models/**/*.pkl
 # =========================
 # Resultados y outputs
 # =========================
-results/
+# results/ se ignora entero EXCEPTO results/verification/: los JSON de
+# verificación y FINDINGS.md son la evidencia reproducible que el README cita
+# (pesan ~100 KB). Los CSV temporales que genera verify_one.py no se versionan.
+results/*
+!results/verification/
+results/verification/*_data.csv
 *.png
 
 # =========================

@@ -1,0 +1,67 @@
+[
+  {
+    "params": {
+      "n_estimators": 200,
+      "max_depth": 3,
+      "learning_rate": 0.03
+    },
+    "r2_mean": 0.07251255220922743,
+    "r2_std": 0.660545782366856
+  },
+  {
+    "params": {
+      "n_estimators": 300,
+      "max_depth": 2,
+      "learning_rate": 0.03
+    },
+    "r2_mean": -0.14746472545630704,
+    "r2_std": 0.7450725639520971
+  },
+  {
+    "params": {
+      "n_estimators": 150,
+      "max_depth": 2,
+      "learning_rate": 0.1
+    },
+    "r2_mean": -0.2068932907602184,
+    "r2_std": 0.8152733211209954
+  },
+  {
+    "params": {
+      "n_estimators": 200,
+      "max_depth": 2,
+      "learning_rate": 0.05,
+      "subsample": 0.8
+    },
+    "r2_mean": -0.24592927312366922,
+    "r2_std": 0.862062807222113
+  },
+  {
+    "params": {
+      "n_estimators": 200,
+      "max_depth": 2,
+      "learning_rate": 0.05
+    },
+    "r2_mean": -0.28930813404253286,
+    "r2_std": 0.9263595513163176
+  },
+  {
+    "params": {
+      "n_estimators": 100,
+      "max_depth": 2,
+      "learning_rate": 0.05
+    },
+    "r2_mean": -0.32046153823621193,
+    "r2_std": 1.038235559007361
+  },
+  {
+    "params": {
+      "n_estimators": 200,
+      "max_depth": 2,
+      "learning_rate": 0.05,
+      "min_samples_leaf": 3
+    },
+    "r2_mean": -0.37101841442404576,
+    "r2_std": 1.114542885894384
+  }
+]
